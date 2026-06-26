@@ -3,7 +3,7 @@
 ## 📋 Description
 
 Ce projet implémente un pipeline complet de normalisation de données orchestré par **Windmill**, avec :
-- 🔄 Pipeline ETL en 12 étapes (ingestion → enrichissement)
+- 🔄 Pipeline ETL en 12 étapes (ingestion → enrichissement → métriques)
 - 📊 Stockage dans MongoDB (raw / normalized / rejected)
 - 📈 Observabilité complète avec OpenTelemetry + Prometheus + Tempo + Grafana
 
@@ -27,7 +27,8 @@ Sources (externes)
     ├── dedup.py              # Déduplication
     ├── validation.py         # Règles métier
     ├── enrichment.py         # Enrichissement
-    └── mongodb_writer.py     # Écriture MongoDB
+    ├── mongodb_writer.py     # Écriture MongoDB
+    └── send_metrics.py       # Envoi des métriques à l'OTEL Collector
     ↓                    ↓                    ↓
 [MongoDB]          [MongoDB]          [MongoDB]
 raw_data           normalized_data   rejected_data
@@ -55,6 +56,7 @@ raw_data           normalized_data   rejected_data
 | 9 | **Validation** | `validation.py` | Règles métier + schéma |
 | 10 | **Enrichissement** | `enrichment.py` | Métadonnées, source, horodatage |
 | 11 | **Écriture** | `mongodb_writer.py` | Sauvegarde dans MongoDB |
+| 12 | **Métriques** | `send_metrics.py` | Envoi des métriques à l'OTEL Collector |
 
 ---
 
@@ -83,7 +85,8 @@ windmill-pipeline/
 │   ├── dedup.py
 │   ├── validation.py
 │   ├── enrichment.py
-│   └── mongodb_writer.py
+│   ├── mongodb_writer.py
+│   └── send_metrics.py
 │
 ├── grafana/                    # Configuration Grafana
 │   ├── datasources.yml
@@ -188,7 +191,7 @@ windmill-windmill_worker_native-1   Up       8000/tcp
 
 > **Notes :**
 > - **Tempo** n'a pas d'interface web sur la racine (`/`). Utilisez `/status` ou `/ready` pour vérifier l'état du service.
-> - **OTEL Collector Metrics** peut être vide au premier lancement. Les métriques apparaîtront après la première exécution d'un script dans Windmill.
+> - **OTEL Collector Metrics** peut être vide au premier lancement. Les métriques apparaîtront après la première exécution du Flow Windmill.
 
 ### Premier accès à Windmill
 
@@ -232,6 +235,7 @@ curl http://localhost:3000              # Grafana
 9. validation
 10. enrichment
 11. mongodb_writer
+12. send_metrics
 ```
 
 #### Étape 2 : Configurer les branches conditionnelles
@@ -248,7 +252,7 @@ curl http://localhost:3000              # Grafana
    ```json
    {
      "source_type": "csv",
-     "source_path": "/data/test.csv",
+     "source_path": "/data/sales_2024.csv",
      "format": "csv"
    }
    ```
@@ -274,6 +278,25 @@ db.normalized_data.find().pretty()
 db.rejected_data.find().pretty()
 ```
 
+#### Étape 5 : Vérifier les métriques
+
+```bash
+# Voir les métriques du pipeline
+curl http://localhost:8890/metrics | grep "windmill_pipeline"
+
+# Résultat attendu :
+# windmill_pipeline_raw_data_total_ratio 5
+# windmill_pipeline_normalized_data_total_ratio 5
+# windmill_pipeline_rejected_data_total_ratio 0
+# windmill_pipeline_raw_pending_total_ratio 0
+# windmill_pipeline_raw_processing_total_ratio 5
+# windmill_pipeline_raw_by_source_ratio{source_type="api"} 1
+# windmill_pipeline_raw_by_source_ratio{source_type="csv"} 1
+# windmill_pipeline_raw_by_source_ratio{source_type="excel"} 1
+# windmill_pipeline_raw_by_source_ratio{source_type="html"} 1
+# windmill_pipeline_raw_by_source_ratio{source_type="json"} 1
+```
+
 ### Méthode 2 : Avec les données de test
 
 Les données de test ont été automatiquement insérées dans MongoDB lors du premier démarrage :
@@ -283,30 +306,20 @@ Les données de test ont été automatiquement insérées dans MongoDB lors du p
 db.raw_data.find({ "status": "pending" }).pretty()
 ```
 
-### Méthode 3 : Script Python de test
-
-```python
-import requests
-import json
-
-# URL du webhook Windmill (à créer dans Windmill)
-webhook_url = "http://localhost/api/v1/flows/run/"
-
-# Paramètres du pipeline
-payload = {
-    "source_type": "csv",
-    "source_path": "/data/test.csv",
-    "format": "csv"
-}
-
-# Exécuter le pipeline
-response = requests.post(webhook_url, json=payload)
-print(json.dumps(response.json(), indent=2))
-```
-
 ---
 
 ## 📊 Observabilité
+
+### Métriques disponibles
+
+| Métrique | Description |
+|----------|-------------|
+| `windmill_pipeline_raw_data_total_ratio` | Nombre total de données brutes |
+| `windmill_pipeline_normalized_data_total_ratio` | Nombre total de données normalisées |
+| `windmill_pipeline_rejected_data_total_ratio` | Nombre total de données rejetées |
+| `windmill_pipeline_raw_pending_total_ratio` | Nombre de données en attente |
+| `windmill_pipeline_raw_processing_total_ratio` | Nombre de données en traitement |
+| `windmill_pipeline_raw_by_source_ratio` | Répartition des données par source |
 
 ### Dashboards Grafana
 
@@ -315,25 +328,12 @@ print(json.dumps(response.json(), indent=2))
    - Password: `admin`
 
 2. Allez dans **"Dashboards"** → **"Browse"**
-3. Sélectionnez **"Windmill Pipeline"** → **"Pipeline de Normalisation - Vue Globale"**
+3. Sélectionnez **"Pipeline de Normalisation - Vue Globale"**
 
 Le dashboard affiche :
-- **Latence P95** par tâche
-- **Taux d'erreur** par étape
-- **Consommation CPU** par worker
-- **Consommation Mémoire** par worker
-- **Traces distribuées** complètes
-- **Nombre d'erreurs** par étape
-
-### Métriques disponibles
-
-| Métrique | Description |
-|----------|-------------|
-| `windmill_job_duration_seconds` | Durée d'exécution des jobs |
-| `windmill_job_errors_total` | Nombre d'erreurs totales |
-| `windmill_job_total` | Nombre total de jobs |
-| `container_cpu_usage_seconds_total` | CPU consommée |
-| `container_memory_working_set_bytes` | Mémoire consommée |
+- **Statistiques** : Données brutes, normalisées, rejetées, en attente, en traitement
+- **Évolution des données** : Graphique temporel des 3 métriques principales
+- **Répartition par source** : Diagramme circulaire des sources de données
 
 ---
 
@@ -392,24 +392,6 @@ def main(deduplicated_data: dict):
     }
 ```
 
-### Ajouter une nouvelle collection MongoDB
-
-1. Modifier `scripts/mongodb_writer.py` :
-   ```python
-   from typing import Literal, Dict, Any
-   
-   def main(
-       data: Dict[str, Any],
-       collection: Literal["raw_data", "normalized_data", "rejected_data", "archive_data"] = "normalized_data"
-   ):
-       # ...
-   ```
-
-2. Modifier `mongo-init/init.js` :
-   ```javascript
-   db.createCollection('archive_data');
-   ```
-
 ---
 
 ## 🐛 Dépannage
@@ -439,18 +421,13 @@ docker-compose logs mongodb
 # Vérifier les identifiants dans mongodb_writer.py
 ```
 
-### Grafana n'affiche pas les datasources
+### Aucune métrique dans l'OTEL Collector
 
 ```bash
-# Vérifier les logs de Grafana
-docker-compose logs grafana
-
-# Vérifier les fichiers de configuration
-cat grafana/datasources.yml
-cat grafana/dashboards.yml
-
-# Redémarrer Grafana
-docker-compose restart grafana
+# 1. Vérifier que send_metrics.py est bien dans le Flow
+# 2. Réexécuter le Flow
+# 3. Vérifier les métriques
+curl http://localhost:8890/metrics | grep "windmill_pipeline"
 ```
 
 ### Problèmes de ports
@@ -459,24 +436,8 @@ docker-compose restart grafana
 # Voir les ports occupés
 netstat -ano | findstr "4317 4318 4319 8890 9090 3000 3200 55680"
 
-# Arrêter un service problématique
-docker-compose stop <service_name>
-
 # Relancer proprement
 docker-compose down && docker-compose up -d
-```
-
-### Erreurs de dépendances Python
-
-```bash
-# Vérifier que le fichier requirements.txt est présent
-cat scripts/requirements.txt
-
-# Vérifier les logs des workers
-docker-compose logs windmill_worker
-
-# Vérifier que pymongo est installé
-docker-compose exec windmill_worker pip list | grep pymongo
 ```
 
 ### Volume "file exists" error
@@ -501,9 +462,6 @@ docker-compose up -d
 # Arrêter tous les services
 docker-compose down
 
-# Arrêter et supprimer les volumes (⚠️ perte de données)
-docker-compose down -v
-
 # Redémarrer un service
 docker-compose restart windmill_server
 
@@ -514,13 +472,9 @@ docker-compose logs -f mongodb
 ### Base de données
 
 ```bash
-# Connexion à PostgreSQL (Windmill)
-docker exec -it windmill-db-1 psql -U postgres -d windmill
-
 # Connexion à MongoDB
 docker exec -it windmill-mongodb-1 mongosh -u admin -p changeme
 
-# Voir les collections MongoDB
 use data_pipeline
 show collections
 
@@ -533,18 +487,15 @@ db.rejected_data.count()
 ### Observabilité
 
 ```bash
-# Voir les métriques Prometheus
-curl http://localhost:9090/api/v1/query?query=up
+# Voir les métriques OpenTelemetry
+curl http://localhost:8890/metrics | grep "windmill_pipeline"
 
-# Voir les métriques OpenTelemetry (port 8890)
-curl http://localhost:8890/metrics
+# Voir les métriques Prometheus
+curl 'http://localhost:9090/api/v1/query?query=windmill_pipeline_raw_data_total_ratio'
 
 # Vérifier l'état de Tempo
 curl http://localhost:3200/status
 curl http://localhost:3200/ready
-
-# Voir les dashboards Grafana
-curl http://localhost:3000/api/dashboards
 ```
 
 ---
@@ -568,7 +519,7 @@ curl http://localhost:3000/api/dashboards
 ```txt
 pymongo==4.6.1
 python-dateutil==2.8.2
-pandas==2.0.3
+pandas==2.2.0
 openpyxl==3.1.2
 ```
 
@@ -587,20 +538,6 @@ openpyxl==3.1.2
 | OTEL Collector Metrics | 8890 | 8890 | Exposition métriques |
 | Tempo UI | 3200 | 3200 | Interface Tempo |
 | Tempo OTLP | 55680 | 55680 | Réception OTLP gRPC |
-
----
-
-## 🎯 Résumé des Fonctionnalités Testées
-
-| Fonctionnalité | Statut | Description |
-|----------------|--------|-------------|
-| Multi-utilisateurs | ✅ Validé | Comptes Alice et Bob créés et connectés |
-| Paramètres modifiables | ✅ Validé | Changement de n = 30, 35, 40 sans re-déploiement |
-| Documentation Markdown | ✅ Validé | Champ Description dans Settings du script |
-| Logs d'exécution | ✅ Validé | Onglet Runs avec historique et détails |
-| Paramètres restreints | ✅ Validé | Menu déroulant avec 2 choix via Literal |
-| Observabilité | ✅ Validé | Métriques, traces, dashboards Grafana |
-| MongoDB intégration | ✅ Validé | Écriture dans 3 collections distinctes |
 
 ---
 
@@ -632,6 +569,7 @@ MIT
 | | | - Dashboard Grafana prêt à l'emploi |
 | | | - Données de test intégrées |
 | | | - Ports optimisés : OTEL Metrics sur 8890, Tempo sur 55680 |
+| | | - Métriques personnalisées via `send_metrics.py` |
 
 ---
 

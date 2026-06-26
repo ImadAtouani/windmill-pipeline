@@ -1405,6 +1405,162 @@ value:
             parallel: true
             skip_failure: true
       summary: ""
+    - id: o
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >-
+          """
+
+          Envoi des métriques du pipeline à l'OTEL Collector
+
+          À ajouter comme dernière étape du Flow
+
+          """
+
+          import time
+
+          import json
+
+          import urllib.request
+
+          import urllib.error
+
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+
+          def main():
+              OTEL_COLLECTOR_URL = "http://otel_collector:4318/v1/metrics"
+              
+              try:
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/", serverSelectionTimeoutMS=5000)
+                  db = client["data_pipeline"]
+                  
+                  raw = db.raw_data.count_documents({})
+                  norm = db.normalized_data.count_documents({})
+                  rej = db.rejected_data.count_documents({})
+                  pending = db.raw_data.count_documents({"status": "pending"})
+                  processing = db.raw_data.count_documents({"status": "processing"})
+                  
+                  sources = list(db.raw_data.aggregate([
+                      {"$group": {"_id": "$source_type", "count": {"$sum": 1}}}
+                  ]))
+                  
+                  print(f"📊 Métriques: raw={raw}, normalized={norm}, rejected={rej}")
+                  
+                  # Envoyer les métriques (simplifié)
+                  metrics = [
+                      ("pipeline.raw.data.total", raw, {"type": "raw"}),
+                      ("pipeline.normalized.data.total", norm, {"type": "normalized"}),
+                      ("pipeline.rejected.data.total", rej, {"type": "rejected"}),
+                      ("pipeline.raw.pending.total", pending, {"status": "pending"}),
+                      ("pipeline.raw.processing.total", processing, {"status": "processing"}),
+                  ]
+                  
+                  for name, value, attrs in metrics:
+                      payload = {
+                          "resourceMetrics": [{
+                              "resource": {
+                                  "attributes": [
+                                      {"key": "service.name", "value": {"stringValue": "windmill-pipeline"}},
+                                      {"key": "service.version", "value": {"stringValue": "1.0.0"}}
+                                  ]
+                              },
+                              "scopeMetrics": [{
+                                  "scope": {"name": "pipeline.metrics", "version": "1.0.0"},
+                                  "metrics": [{
+                                      "name": name,
+                                      "description": "",
+                                      "unit": "1",
+                                      "gauge": {
+                                          "dataPoints": [{
+                                              "attributes": [
+                                                  {"key": k, "value": {"stringValue": str(v)}} 
+                                                  for k, v in attrs.items()
+                                              ],
+                                              "timeUnixNano": str(int(time.time() * 1e9)),
+                                              "asDouble": float(value)
+                                          }]
+                                      }
+                                  }]
+                              }]
+                          }]
+                      }
+                      
+                      data = json.dumps(payload).encode('utf-8')
+                      req = urllib.request.Request(
+                          OTEL_COLLECTOR_URL,
+                          data=data,
+                          headers={'Content-Type': 'application/json'},
+                          method='POST'
+                      )
+                      with urllib.request.urlopen(req, timeout=5) as response:
+                          if response.status == 200:
+                              print(f"✅ {name}={value}")
+                  
+                  for source in sources:
+                      source_type = source['_id'] or 'unknown'
+                      payload = {
+                          "resourceMetrics": [{
+                              "resource": {
+                                  "attributes": [
+                                      {"key": "service.name", "value": {"stringValue": "windmill-pipeline"}},
+                                      {"key": "service.version", "value": {"stringValue": "1.0.0"}}
+                                  ]
+                              },
+                              "scopeMetrics": [{
+                                  "scope": {"name": "pipeline.metrics", "version": "1.0.0"},
+                                  "metrics": [{
+                                      "name": "pipeline.raw.by.source",
+                                      "description": "",
+                                      "unit": "1",
+                                      "gauge": {
+                                          "dataPoints": [{
+                                              "attributes": [
+                                                  {"key": "source_type", "value": {"stringValue": source_type}}
+                                              ],
+                                              "timeUnixNano": str(int(time.time() * 1e9)),
+                                              "asDouble": float(source["count"])
+                                          }]
+                                      }
+                                  }]
+                              }]
+                          }]
+                      }
+                      
+                      data = json.dumps(payload).encode('utf-8')
+                      req = urllib.request.Request(
+                          OTEL_COLLECTOR_URL,
+                          data=data,
+                          headers={'Content-Type': 'application/json'},
+                          method='POST'
+                      )
+                      with urllib.request.urlopen(req, timeout=5) as response:
+                          if response.status == 200:
+                              print(f"✅ pipeline.raw.by.source{{source_type={source_type}}}={source['count']}")
+                  
+                  return {"status": "success", "step": "send_metrics"}
+                  
+              except Exception as e:
+                  return {"status": "error", "message": str(e), "step": "send_metrics"}
+        language: python3
+        input_transforms: {}
+      summary: Metrics
   flow_env: {}
   groups: []
 schema:

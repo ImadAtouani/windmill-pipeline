@@ -36,18 +36,26 @@ services:
     deploy:
       replicas: 1
     restart: unless-stopped
-    expose:
-      - 8000
-      - 2525
+    ports:
+      - "8000:8000"
+      - "2525:2525"
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:changeme@db/windmill?sslmode=disable}
       - MODE=server
+      - ENABLE_PROMETHEUS=true
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/windmill/prometheus
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel_collector:4317
+      - OTEL_EXPORTER_OTLP_INSECURE=true
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=windmill-server
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
       - ./scripts:/tmp/windmill/scripts
+      - prometheus_data:/tmp/windmill/prometheus
     logging: *default-logging
     networks:
       - windmill_network
@@ -67,6 +75,13 @@ services:
       - MODE=worker
       - WORKER_GROUP=default
       - FAVOR_UNSHARE_PID=true
+      - ENABLE_PROMETHEUS=true
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/windmill/prometheus
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel_collector:4317
+      - OTEL_EXPORTER_OTLP_INSECURE=true
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=windmill-worker
     depends_on:
       db:
         condition: service_healthy
@@ -74,6 +89,7 @@ services:
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
       - ./scripts:/tmp/windmill/scripts
+      - prometheus_data:/tmp/windmill/prometheus
     logging: *default-logging
     networks:
       - windmill_network
@@ -93,12 +109,20 @@ services:
       - WORKER_GROUP=native
       - NATIVE_MODE=true
       - SLEEP_QUEUE=200
+      - ENABLE_PROMETHEUS=true
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/windmill/prometheus
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel_collector:4317
+      - OTEL_EXPORTER_OTLP_INSECURE=true
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=windmill-worker-native
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
       - ./scripts:/tmp/windmill/scripts
+      - prometheus_data:/tmp/windmill/prometheus
     logging: *default-logging
     networks:
       - windmill_network

@@ -8,7 +8,8 @@ import urllib.error
 from datetime import datetime
 from pymongo import MongoClient
 
-OTEL_COLLECTOR_URL = "http://localhost:4318/v1/metrics"  # ⚠️ Changé de otel_collector à localhost
+# ⚠️ Changé : localhost → otel_collector (nom du conteneur)
+OTEL_COLLECTOR_URL = "http://otel_collector:4318/v1/metrics"
 
 def send_metric(name, value, unit="1", description="", attributes=None):
     """Envoie une métrique à l'OTEL Collector"""
@@ -66,8 +67,8 @@ def send_metric(name, value, unit="1", description="", attributes=None):
 def get_pipeline_metrics():
     """Récupère les métriques du pipeline depuis MongoDB"""
     try:
-        # ⚠️ Changé : mongodb → localhost
-        client = MongoClient("mongodb://admin:changeme@localhost:27017/", serverSelectionTimeoutMS=5000)
+        # ⚠️ Changé : localhost → mongodb (nom du conteneur)
+        client = MongoClient("mongodb://admin:changeme@mongodb:27017/", serverSelectionTimeoutMS=5000)
         db = client["data_pipeline"]
         
         raw = db.raw_data.count_documents({})

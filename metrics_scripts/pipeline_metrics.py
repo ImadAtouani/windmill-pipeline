@@ -1,6 +1,5 @@
 """
 Envoi des métriques du pipeline à l'OTEL Collector
-Ce script est dans un dossier séparé pour éviter les conflits avec typing.py
 """
 import time
 import json
@@ -9,7 +8,7 @@ import urllib.error
 from datetime import datetime
 from pymongo import MongoClient
 
-OTEL_COLLECTOR_URL = "http://otel_collector:4318/v1/metrics"
+OTEL_COLLECTOR_URL = "http://localhost:4318/v1/metrics"  # ⚠️ Changé de otel_collector à localhost
 
 def send_metric(name, value, unit="1", description="", attributes=None):
     """Envoie une métrique à l'OTEL Collector"""
@@ -67,7 +66,8 @@ def send_metric(name, value, unit="1", description="", attributes=None):
 def get_pipeline_metrics():
     """Récupère les métriques du pipeline depuis MongoDB"""
     try:
-        client = MongoClient("mongodb://admin:changeme@mongodb:27017/", serverSelectionTimeoutMS=5000)
+        # ⚠️ Changé : mongodb → localhost
+        client = MongoClient("mongodb://admin:changeme@localhost:27017/", serverSelectionTimeoutMS=5000)
         db = client["data_pipeline"]
         
         raw = db.raw_data.count_documents({})
@@ -100,7 +100,6 @@ def update_pipeline_metrics():
     
     print(f"📊 Métriques: raw={metrics['raw']}, normalized={metrics['normalized']}, rejected={metrics['rejected']}")
     
-    # Envoyer les métriques
     send_metric("pipeline.raw.data.total", metrics["raw"], "1", "Total raw data", {"type": "raw"})
     send_metric("pipeline.normalized.data.total", metrics["normalized"], "1", "Total normalized data", {"type": "normalized"})
     send_metric("pipeline.rejected.data.total", metrics["rejected"], "1", "Total rejected data", {"type": "rejected"})

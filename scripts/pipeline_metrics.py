@@ -5,6 +5,7 @@ import time
 import json
 import requests
 from datetime import datetime
+from pymongo import MongoClient
 
 OTEL_COLLECTOR_URL = "http://otel_collector:4318/v1/metrics"
 
@@ -43,16 +44,19 @@ def send_metric(name, value, unit="1", description="", attributes=None):
     }
     
     try:
-        response = requests.post(OTEL_COLLECTOR_URL, headers={"Content-Type": "application/json"}, json=payload, timeout=2)
+        response = requests.post(OTEL_COLLECTOR_URL, headers={"Content-Type": "application/json"}, json=payload, timeout=5)
+        if response.status_code == 200:
+            print(f"✅ Métrique envoyée: {name}={value}")
+        else:
+            print(f"⚠️ Erreur envoi {name}: {response.status_code}")
         return response.status_code == 200
     except Exception as e:
-        print(f"⚠️ Erreur envoi métrique: {e}")
+        print(f"⚠️ Erreur envoi métrique {name}: {e}")
         return False
 
-def update_pipeline_metrics():
-    """Met à jour les métriques du pipeline"""
+def get_pipeline_metrics():
+    """Récupère les métriques du pipeline depuis MongoDB"""
     try:
-        from pymongo import MongoClient
         client = MongoClient("mongodb://admin:changeme@mongodb:27017/", serverSelectionTimeoutMS=5000)
         db = client["data_pipeline"]
         
@@ -66,22 +70,38 @@ def update_pipeline_metrics():
             {"$group": {"_id": "$source_type", "count": {"$sum": 1}}}
         ]))
         
-        # Envoyer les métriques
-        send_metric("pipeline.raw.data.total", raw, "1", "Total raw data", {"type": "raw"})
-        send_metric("pipeline.normalized.data.total", norm, "1", "Total normalized data", {"type": "normalized"})
-        send_metric("pipeline.rejected.data.total", rej, "1", "Total rejected data", {"type": "rejected"})
-        send_metric("pipeline.raw.pending.total", pending, "1", "Pending data", {"status": "pending"})
-        send_metric("pipeline.raw.processing.total", processing, "1", "Processing data", {"status": "processing"})
-        
-        for source in sources:
-            source_type = source['_id'] or 'unknown'
-            send_metric("pipeline.raw.by.source", source["count"], "1", "Data by source", {"source_type": source_type})
-        
-        print(f"✅ Métriques envoyées: raw={raw}, normalized={norm}, rejected={rej}")
-        return True
+        return {
+            "raw": raw,
+            "normalized": norm,
+            "rejected": rej,
+            "pending": pending,
+            "processing": processing,
+            "sources": sources
+        }
     except Exception as e:
-        print(f"❌ Erreur: {e}")
+        print(f"❌ Erreur MongoDB: {e}")
+        return None
+
+def update_pipeline_metrics():
+    """Met à jour les métriques du pipeline"""
+    metrics = get_pipeline_metrics()
+    if not metrics:
         return False
+    
+    print(f"📊 Métriques: raw={metrics['raw']}, normalized={metrics['normalized']}, rejected={metrics['rejected']}")
+    
+    # Envoyer les métriques
+    send_metric("pipeline.raw.data.total", metrics["raw"], "1", "Total raw data", {"type": "raw"})
+    send_metric("pipeline.normalized.data.total", metrics["normalized"], "1", "Total normalized data", {"type": "normalized"})
+    send_metric("pipeline.rejected.data.total", metrics["rejected"], "1", "Total rejected data", {"type": "rejected"})
+    send_metric("pipeline.raw.pending.total", metrics["pending"], "1", "Pending data", {"status": "pending"})
+    send_metric("pipeline.raw.processing.total", metrics["processing"], "1", "Processing data", {"status": "processing"})
+    
+    for source in metrics["sources"]:
+        source_type = source['_id'] or 'unknown'
+        send_metric("pipeline.raw.by.source", source["count"], "1", "Data by source", {"source_type": source_type})
+    
+    return True
 
 if __name__ == "__main__":
     update_pipeline_metrics()

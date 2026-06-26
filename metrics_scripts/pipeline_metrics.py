@@ -1,9 +1,11 @@
 """
 Envoi des métriques du pipeline à l'OTEL Collector
+Ce script est dans un dossier séparé pour éviter les conflits avec typing.py
 """
 import time
 import json
-import requests
+import urllib.request
+import urllib.error
 from datetime import datetime
 from pymongo import MongoClient
 
@@ -44,12 +46,20 @@ def send_metric(name, value, unit="1", description="", attributes=None):
     }
     
     try:
-        response = requests.post(OTEL_COLLECTOR_URL, headers={"Content-Type": "application/json"}, json=payload, timeout=5)
-        if response.status_code == 200:
-            print(f"✅ Métrique envoyée: {name}={value}")
-        else:
-            print(f"⚠️ Erreur envoi {name}: {response.status_code}")
-        return response.status_code == 200
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            OTEL_COLLECTOR_URL,
+            data=data,
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            if response.status == 200:
+                print(f"✅ Métrique envoyée: {name}={value}")
+                return True
+            else:
+                print(f"⚠️ Erreur envoi {name}: {response.status}")
+                return False
     except Exception as e:
         print(f"⚠️ Erreur envoi métrique {name}: {e}")
         return False

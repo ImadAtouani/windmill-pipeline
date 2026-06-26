@@ -23,110 +23,75 @@
       "title": "Données brutes",
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 0, "y": 1},
-      "targets": [
-        {"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"}
-      ],
+      "targets": [{"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"}],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
-          "unit": "short",
-          "mappings": []
+          "unit": "short"
         }
       },
-      "options": {
-        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]},
-        "colorMode": "value",
-        "graphMode": "area"
-      }
+      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
     },
     {
       "id": 3,
       "title": "Données normalisées",
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 4, "y": 1},
-      "targets": [
-        {"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "A", "legendFormat": "Normalisées"}
-      ],
+      "targets": [{"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "A", "legendFormat": "Normalisées"}],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
-          "unit": "short",
-          "mappings": []
+          "unit": "short"
         }
       },
-      "options": {
-        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]},
-        "colorMode": "value",
-        "graphMode": "area"
-      }
+      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
     },
     {
       "id": 4,
       "title": "Données rejetées",
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 8, "y": 1},
-      "targets": [
-        {"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "A", "legendFormat": "Rejetées"}
-      ],
+      "targets": [{"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "A", "legendFormat": "Rejetées"}],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}]},
-          "unit": "short",
-          "mappings": []
+          "unit": "short"
         }
       },
-      "options": {
-        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]},
-        "colorMode": "value",
-        "graphMode": "area"
-      }
+      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
     },
     {
       "id": 5,
       "title": "En attente",
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 12, "y": 1},
-      "targets": [
-        {"expr": "windmill_pipeline_raw_pending_total_ratio", "refId": "A", "legendFormat": "En attente"}
-      ],
+      "targets": [{"expr": "windmill_pipeline_raw_pending_total_ratio", "refId": "A", "legendFormat": "En attente"}],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}]},
-          "unit": "short",
-          "mappings": []
+          "unit": "short"
         }
       },
-      "options": {
-        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]},
-        "colorMode": "value",
-        "graphMode": "area"
-      }
+      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
     },
     {
       "id": 6,
       "title": "En traitement",
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 16, "y": 1},
-      "targets": [
-        {"expr": "windmill_pipeline_raw_processing_total_ratio", "refId": "A", "legendFormat": "En traitement"}
-      ],
+      "targets": [{"expr": "windmill_pipeline_raw_processing_total_ratio", "refId": "A", "legendFormat": "En traitement"}],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]},
-          "unit": "short",
-          "mappings": []
+          "unit": "short"
         }
       },
-      "options": {
-        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]},
-        "colorMode": "value",
-        "graphMode": "area"
-      }
+      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
     },
     {
       "id": 7,
@@ -141,47 +106,139 @@
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "palette-classic"},
-          "custom": {
-            "axisPlacement": "auto",
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "showPoints": "never"
-          },
+          "custom": {"axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 10, "lineInterpolation": "linear", "lineWidth": 2},
           "unit": "short"
         }
       },
-      "options": {
-        "legend": {"displayMode": "list", "placement": "bottom"},
-        "tooltip": {"mode": "multi", "sort": "none"}
-      }
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
     },
     {
       "id": 8,
       "title": "🍩 Répartition par source",
       "type": "piechart",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
-      "targets": [
-        {"expr": "windmill_pipeline_raw_by_source_ratio", "refId": "A"}
-      ],
+      "targets": [{"expr": "windmill_pipeline_raw_by_source_ratio", "refId": "A"}],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "palette-classic"},
           "custom": {"displayLabels": ["name", "percent"]}
         }
       },
-      "options": {
-        "displayLabels": ["name", "percent"],
-        "legend": {"displayMode": "list", "placement": "right"}
-      }
+      "options": {"displayLabels": ["name", "percent"], "legend": {"displayMode": "list", "placement": "right"}}
     },
     {
       "id": 9,
+      "title": "⏱️ Latence par tâche (dernière exécution)",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {"expr": "windmill_pipeline_latency_last_milliseconds", "refId": "A", "legendFormat": "{{script}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "ms",
+          "custom": {"lineInterpolation": "linear", "barAlignment": 0, "barWidthFactor": 0.8}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 10,
+      "title": "⏱️ Latence moyenne par tâche (10 dernières)",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {"expr": "windmill_pipeline_latency_avg_milliseconds", "refId": "A", "legendFormat": "{{script}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "ms",
+          "custom": {"lineInterpolation": "linear", "barAlignment": 0, "barWidthFactor": 0.8}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 11,
+      "title": "❌ Taux d'erreur par tâche",
+      "type": "barchart",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 20},
+      "targets": [
+        {"expr": "windmill_pipeline_error_rate_percent", "refId": "A", "legendFormat": "{{script}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "orange", "value": 10},
+            {"color": "red", "value": 50}
+          ]},
+          "unit": "percent",
+          "custom": {"lineInterpolation": "linear", "barAlignment": 0, "barWidthFactor": 0.8}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 12,
+      "title": "📊 Nombre d'erreurs vs succès par tâche",
+      "type": "barchart",
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 20},
+      "targets": [
+        {"expr": "windmill_pipeline_errors_total_ratio", "legendFormat": "Erreurs", "refId": "A"},
+        {"expr": "windmill_pipeline_success_total_ratio", "legendFormat": "Succès", "refId": "B"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "short",
+          "custom": {"lineInterpolation": "linear", "barAlignment": 0, "barWidthFactor": 0.8}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 13,
+      "title": "💻 CPU par tâche (dernière exécution)",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26},
+      "targets": [
+        {"expr": "windmill_pipeline_cpu_percent", "refId": "A", "legendFormat": "{{script}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "percent",
+          "custom": {"lineInterpolation": "linear", "barAlignment": 0, "barWidthFactor": 0.8}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 14,
+      "title": "💾 Mémoire par tâche (dernière exécution)",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26},
+      "targets": [
+        {"expr": "windmill_pipeline_memory_mb_MB", "refId": "A", "legendFormat": "{{script}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "MB",
+          "custom": {"lineInterpolation": "linear", "barAlignment": 0, "barWidthFactor": 0.8}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 15,
       "title": "📊 Statistiques des données",
       "type": "table",
-      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 12},
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 34},
       "targets": [
         {"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"},
         {"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "B", "legendFormat": "Normalisées"},
@@ -190,21 +247,12 @@
         {"expr": "windmill_pipeline_raw_processing_total_ratio", "refId": "E", "legendFormat": "En traitement"}
       ],
       "fieldConfig": {
-        "defaults": {
-          "custom": {"align": "auto"},
-          "unit": "short"
-        }
+        "defaults": {"custom": {"align": "auto"}, "unit": "short"}
       },
-      "options": {
-        "showHeader": true,
-        "sortBy": [],
-        "cellHeight": "sm"
-      }
+      "options": {"showHeader": true, "sortBy": [], "cellHeight": "sm"}
     }
   ],
-  "templating": {
-    "list": []
-  },
+  "templating": {"list": []},
   "annotations": {
     "list": [
       {

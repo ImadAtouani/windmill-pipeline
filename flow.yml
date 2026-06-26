@@ -1,0 +1,1443 @@
+summary: ""
+description: ""
+value:
+  modules:
+    - id: a
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >
+          from pymongo import MongoClient
+
+          from datetime import datetime
+
+          import json
+
+
+
+          def main(source_type: str = None, source_path: str = None):
+              """
+              Ingestion - Récupère UNIQUEMENT les données correspondant aux filtres
+              """
+
+              try:
+                  # Connexion à MongoDB
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+
+                  # --- Construire la requête ---
+                  query = {"status": "pending"}
+
+                  if source_type:
+                      query["source_type"] = source_type
+                  if source_path:
+                      query["source_path"] = source_path
+
+                  print(f"🔍 Filtres appliqués: {json.dumps(query, indent=2)}")
+
+                  pending_data = list(db.raw_data.find(query).limit(1))
+
+                  if not pending_data:
+                      stats = list(
+                          db.raw_data.aggregate(
+                              [
+                                  {"$match": {"status": "pending"}},
+                                  {"$group": {"_id": "$source_type", "count": {"$sum": 1}}},
+                              ]
+                          )
+                      )
+                      available = ", ".join([f"{s['_id']}: {s['count']}" for s in stats])
+
+                      return {
+                          "status": "error",
+                          "message": f"No pending data found with filters: {query}",
+                          "available_data": available or "No pending data at all",
+                          "filters_used": query,
+                          "step": "ingestion",
+                      }
+
+                  raw_document = pending_data[0]
+
+                  raw_payload = raw_document.get("raw_payload", {})
+                  raw_payload["ingested_at"] = datetime.now().isoformat()
+                  raw_payload["source_type"] = raw_document.get("source_type")
+                  raw_payload["source_path"] = raw_document.get("source_path")
+
+                  db.raw_data.update_one(
+                      {"_id": raw_document["_id"]}, {"$set": {"status": "processing"}}
+                  )
+
+                  return {
+                      "status": "success",
+                      "raw_payload": raw_payload,
+                      "document_id": str(raw_document["_id"]),
+                      "source_type": raw_document.get("source_type"),
+                      "source_path": raw_document.get("source_path"),
+                      "filters_used": query,
+                      "step": "ingestion",
+                  }
+
+              except Exception as e:
+                  return {"status": "error", "message": str(e), "step": "ingestion"}
+        language: python3
+        input_transforms:
+          source_path:
+            expr: flow_input.source_path
+            type: javascript
+          source_type:
+            expr: flow_input.source_type
+            type: javascript
+      summary: Ingestion
+      continue_on_error: false
+    - id: b
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >-
+          def main(raw_data: dict):
+              """
+              Profilage - Analyse des types, colonnes, valeurs nulles
+              """
+              import json
+              
+              try:
+                  print("=" * 60)
+                  print("📥 Données reçues dans profiling:")
+                  print(f"  - Type: {type(raw_data)}")
+                  print(f"  - Clés: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'Not a dict'}")
+                  print("=" * 60)
+                  
+                  if not isinstance(raw_data, dict):
+                      return {
+                          "status": "error",
+                          "message": f"raw_data is not a dict: {type(raw_data)}",
+                          "step": "profiling"
+                      }
+                  
+                  data = raw_data
+                  
+                  print(f"📊 Données à profiler: {json.dumps(data, indent=2)}")
+                  print("=" * 60)
+                  
+                  column_count = len(data)
+                  data_types = {k: type(v).__name__ for k, v in data.items()}
+                  null_values = {k: v is None for k, v in data.items()}
+                  
+                  return {
+                      "status": "success",
+                      "profile": {
+                          "column_count": column_count,
+                          "data_types": data_types,
+                          "null_values": null_values,
+                          "columns": list(data.keys())
+                      },
+                      "step": "profiling"
+                  }
+                  
+              except Exception as e:
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "profiling"
+                  }
+        language: python3
+        input_transforms:
+          raw_data:
+            expr: results.a.raw_payload.data
+            type: javascript
+      summary: Profiling
+    - id: c
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >-
+          from typing import Literal, Dict, Any
+
+
+          def main(raw_data: Dict[str, Any], format: Literal["csv", "excel",
+          "json", "html", "parquet"] = "json"):
+              """
+              Parsing - CSV, Excel, JSON, HTML, Parquet
+              """
+              import json
+              
+              try:
+                  print("=" * 60)
+                  print("📥 Données reçues dans parsing:")
+                  print(f"  - format: {format}")
+                  print(f"  - raw_data keys: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'Not a dict'}")
+                  print("=" * 60)
+                  
+                  if not isinstance(raw_data, dict):
+                      return {
+                          "status": "error",
+                          "message": f"raw_data is not a dict: {type(raw_data)}",
+                          "step": "parsing"
+                      }
+                  
+                  # Les données sont directement dans raw_data
+                  records = raw_data
+                  
+                  print(f"📊 Données parsées: {json.dumps(records, indent=2)}")
+                  print("=" * 60)
+                  
+                  parsed_data = {
+                      "format": format,
+                      "records": records,
+                      "record_count": len(records) if isinstance(records, dict) else 0
+                  }
+                  
+                  return {
+                      "status": "success",
+                      "parsed_data": parsed_data,
+                      "step": "parsing"
+                  }
+                  
+              except Exception as e:
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "parsing"
+                  }
+        language: python3
+        input_transforms:
+          format:
+            expr: flow_input.format
+            type: javascript
+          raw_data:
+            expr: results.a.raw_payload.data
+            type: javascript
+      summary: Parsing
+    - id: d
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >-
+          def main(parsed_data: dict):
+              """
+              Mapping - champs source → modèle cible
+              """
+              import json
+              
+              try:
+                  print("=" * 60)
+                  print("📥 Données reçues dans mapping:")
+                  print(f"  - parsed_data keys: {list(parsed_data.keys()) if isinstance(parsed_data, dict) else 'Not a dict'}")
+                  print("=" * 60)
+                  
+                  # Récupérer les records
+                  if isinstance(parsed_data, dict) and "records" in parsed_data:
+                      records = parsed_data["records"]
+                      print(f"✅ Utilisation de parsed_data['records']")
+                  else:
+                      records = parsed_data
+                      print(f"✅ Utilisation de parsed_data directement")
+                  
+                  if not isinstance(records, dict):
+                      return {
+                          "status": "error",
+                          "message": f"records is not a dict: {type(records)}",
+                          "step": "mapping"
+                      }
+                  
+                  # Mapping des champs
+                  mapping_rules = {
+                      "id": "user_id",
+                      "name": "full_name",
+                      "amount": "amount",
+                      "date": "transaction_date",
+                      "country": "country_code",
+                      "email": "email_address"
+                  }
+                  
+                  mapped_data = {}
+                  for source, target in mapping_rules.items():
+                      if source in records:
+                          mapped_data[target] = records[source]
+                      else:
+                          print(f"⚠️ Champ source manquant: {source}")
+                  
+                  print(f"📊 Données mappées: {json.dumps(mapped_data, indent=2)}")
+                  print("=" * 60)
+                  
+                  return {
+                      "status": "success",
+                      "mapped_data": mapped_data,
+                      "step": "mapping"
+                  }
+                  
+              except Exception as e:
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "mapping"
+                  }
+        language: python3
+        input_transforms:
+          parsed_data:
+            expr: results.c.parsed_data
+            type: javascript
+      summary: Mapping
+    - id: e
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >-
+          def main(mapped_data: dict):
+              """
+              Nettoyage - trim, encodage, formats
+              """
+              import json
+              
+              try:
+                  print("=" * 60)
+                  print("📥 Données reçues dans cleaning:")
+                  print(f"  - Type: {type(mapped_data)}")
+                  print(f"  - Clés: {list(mapped_data.keys()) if isinstance(mapped_data, dict) else 'Not a dict'}")
+                  print("=" * 60)
+                  
+                  if not isinstance(mapped_data, dict):
+                      return {
+                          "status": "error",
+                          "message": f"mapped_data is not a dict: {type(mapped_data)}",
+                          "step": "cleaning"
+                      }
+                  
+                  print(f"📊 Données avant nettoyage: {json.dumps(mapped_data, indent=2)}")
+                  print("=" * 60)
+                  
+                  cleaned = {}
+                  cleaning_stats = {
+                      "trimmed": 0,
+                      "encoded": 0,
+                      "unchanged": 0
+                  }
+                  
+                  for key, value in mapped_data.items():
+                      if isinstance(value, str):
+                          # Trim
+                          trimmed = value.strip()
+                          if trimmed != value:
+                              cleaning_stats["trimmed"] += 1
+                          
+                          # Encodage UTF-8
+                          encoded = trimmed.encode('utf-8').decode('utf-8')
+                          if encoded != trimmed:
+                              cleaning_stats["encoded"] += 1
+                          else:
+                              cleaning_stats["unchanged"] += 1
+                          
+                          cleaned[key] = encoded
+                      else:
+                          cleaned[key] = value
+                          cleaning_stats["unchanged"] += 1
+                  
+                  print(f"📊 Statistiques de nettoyage: {json.dumps(cleaning_stats, indent=2)}")
+                  print(f"📊 Données après nettoyage: {json.dumps(cleaned, indent=2)}")
+                  print("=" * 60)
+                  
+                  return {
+                      "status": "success",
+                      "cleaned_data": cleaned,
+                      "cleaning_stats": cleaning_stats,
+                      "step": "cleaning"
+                  }
+                  
+              except Exception as e:
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "cleaning"
+                  }
+        language: python3
+        input_transforms:
+          mapped_data:
+            expr: results.d.mapped_data
+            type: javascript
+      summary: Cleaning
+    - id: f
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >-
+          from typing import Literal, Dict, Any
+
+          from datetime import datetime
+
+          import json
+
+
+          def main(
+              cleaned_data: Dict[str, Any],
+              date_format: str = "%Y-%m-%d"
+          ):
+              """
+              Typage - date, nombre, booléen, enum
+              """
+              
+              try:
+                  print("=" * 60)
+                  print("📥 Données reçues dans typing:")
+                  print(f"  - Type: {type(cleaned_data)}")
+                  print(f"  - Clés: {list(cleaned_data.keys()) if isinstance(cleaned_data, dict) else 'Not a dict'}")
+                  print(f"  - date_format: {date_format}")
+                  print("=" * 60)
+                  
+                  if not isinstance(cleaned_data, dict):
+                      return {
+                          "status": "error",
+                          "message": f"cleaned_data is not a dict: {type(cleaned_data)}",
+                          "step": "typing"
+                      }
+                  
+                  print(f"📊 Données avant typage: {json.dumps(cleaned_data, indent=2)}")
+                  print("=" * 60)
+                  
+                  typed_data = {}
+                  typing_stats = {
+                      "typed_as_date": 0,
+                      "typed_as_number": 0,
+                      "typed_as_bool": 0,
+                      "typed_as_enum": 0,
+                      "unchanged": 0,
+                      "errors": 0
+                  }
+                  
+                  # Liste des enums possibles (exemple)
+                  enum_values = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
+                  
+                  for key, value in cleaned_data.items():
+                      try:
+                          # Typage des dates
+                          if key in ["date", "transaction_date", "birth_date"] and isinstance(value, str):
+                              try:
+                                  typed_data[key] = datetime.strptime(value, date_format).isoformat()
+                                  typing_stats["typed_as_date"] += 1
+                                  print(f"  ✅ {key}: '{value}' → date ({typed_data[key]})")
+                              except ValueError:
+                                  typed_data[key] = value
+                                  typing_stats["unchanged"] += 1
+                                  print(f"  ⚠️ {key}: '{value}' → impossible de typer en date")
+                          
+                          # Typage des nombres
+                          elif key in ["amount", "price", "quantity", "value"]:
+                              if isinstance(value, (int, float)):
+                                  typed_data[key] = float(value)
+                                  typing_stats["typed_as_number"] += 1
+                                  print(f"  ✅ {key}: {value} → nombre ({typed_data[key]})")
+                              elif isinstance(value, str):
+                                  try:
+                                      # Nettoyer la chaîne (enlever les symboles €, $, etc.)
+                                      clean_value = value.replace('€', '').replace('$', '').replace(',', '').strip()
+                                      typed_data[key] = float(clean_value)
+                                      typing_stats["typed_as_number"] += 1
+                                      print(f"  ✅ {key}: '{value}' → nombre ({typed_data[key]})")
+                                  except ValueError:
+                                      typed_data[key] = value
+                                      typing_stats["unchanged"] += 1
+                                      print(f"  ⚠️ {key}: '{value}' → impossible de typer en nombre")
+                              else:
+                                  typed_data[key] = value
+                                  typing_stats["unchanged"] += 1
+                          
+                          # Typage des booléens
+                          elif key in ["active", "enabled", "verified", "is_valid"]:
+                              if isinstance(value, bool):
+                                  typed_data[key] = bool(value)
+                                  typing_stats["typed_as_bool"] += 1
+                                  print(f"  ✅ {key}: {value} → booléen")
+                              elif isinstance(value, str):
+                                  if value.lower() in ["true", "yes", "1"]:
+                                      typed_data[key] = True
+                                      typing_stats["typed_as_bool"] += 1
+                                      print(f"  ✅ {key}: '{value}' → booléen (True)")
+                                  elif value.lower() in ["false", "no", "0"]:
+                                      typed_data[key] = False
+                                      typing_stats["typed_as_bool"] += 1
+                                      print(f"  ✅ {key}: '{value}' → booléen (False)")
+                                  else:
+                                      typed_data[key] = value
+                                      typing_stats["unchanged"] += 1
+                              else:
+                                  typed_data[key] = value
+                                  typing_stats["unchanged"] += 1
+                          
+                          # Typage des enums (ex: pays)
+                          elif key in ["country", "country_code", "status"]:
+                              if isinstance(value, str) and value in enum_values:
+                                  typed_data[key] = value
+                                  typing_stats["typed_as_enum"] += 1
+                                  print(f"  ✅ {key}: '{value}' → enum (valeur valide)")
+                              else:
+                                  typed_data[key] = value
+                                  typing_stats["unchanged"] += 1
+                          
+                          # Autres champs
+                          else:
+                              typed_data[key] = value
+                              typing_stats["unchanged"] += 1
+                              
+                      except Exception as e:
+                          print(f"  ❌ Erreur lors du typage de {key}: {str(e)}")
+                          typing_stats["errors"] += 1
+                          typed_data[key] = value
+                  
+                  print("=" * 60)
+                  print(f"📊 Statistiques de typage: {json.dumps(typing_stats, indent=2)}")
+                  print(f"📊 Données après typage: {json.dumps(typed_data, indent=2)}")
+                  print("=" * 60)
+                  
+                  return {
+                      "status": "success" if typing_stats["errors"] == 0 else "partial",
+                      "typed_data": typed_data,
+                      "typing_stats": typing_stats,
+                      "step": "typing"
+                  }
+                  
+              except Exception as e:
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "typing"
+                  }
+        language: python3
+        input_transforms:
+          date_format:
+            type: static
+            value: "%Y-%m-%d"
+          cleaned_data:
+            expr: results.e.cleaned_data
+            type: javascript
+      summary: Typing
+    - id: g
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >-
+          def main(typed_data: dict):
+              """
+              Standardisation - noms, unités, devises, pays
+              """
+              import json
+              
+              try:
+                  print("=" * 60)
+                  print("📥 Données reçues dans standardization:")
+                  print(f"  - Type: {type(typed_data)}")
+                  print(f"  - Clés: {list(typed_data.keys()) if isinstance(typed_data, dict) else 'Not a dict'}")
+                  print("=" * 60)
+                  
+                  if not isinstance(typed_data, dict):
+                      return {
+                          "status": "error",
+                          "message": f"typed_data is not a dict: {type(typed_data)}",
+                          "step": "standardization"
+                      }
+                  
+                  print(f"📊 Données avant standardisation: {json.dumps(typed_data, indent=2)}")
+                  print("=" * 60)
+                  
+                  standardized = typed_data.copy()
+                  std_stats = {
+                      "countries_normalized": 0,
+                      "currencies_converted": 0,
+                      "units_normalized": 0
+                  }
+                  
+                  # Standardisation des pays
+                  country_mapping = {
+                      "FR": "France",
+                      "DE": "Germany",
+                      "US": "United States",
+                      "UK": "United Kingdom",
+                      "CA": "Canada",
+                      "ES": "Spain",
+                      "IT": "Italy",
+                      "JP": "Japan",
+                      "BR": "Brazil",
+                      "AU": "Australia"
+                  }
+                  
+                  if "country" in standardized:
+                      if standardized["country"] in country_mapping:
+                          standardized["country_name"] = country_mapping[standardized["country"]]
+                          std_stats["countries_normalized"] += 1
+                          print(f"  ✅ country: '{standardized['country']}' → '{standardized['country_name']}'")
+                      elif "country_code" in standardized and standardized["country_code"] in country_mapping:
+                          standardized["country_name"] = country_mapping[standardized["country_code"]]
+                          std_stats["countries_normalized"] += 1
+                          print(f"  ✅ country_code: '{standardized['country_code']}' → '{standardized['country_name']}'")
+                  
+                  # Standardisation des devises (conversion EUR → USD)
+                  if "amount" in standardized:
+                      standardized["amount_usd"] = standardized["amount"] * 1.08
+                      std_stats["currencies_converted"] += 1
+                      print(f"  ✅ amount: {standardized['amount']} EUR → {standardized['amount_usd']} USD")
+                  
+                  print("=" * 60)
+                  print(f"📊 Statistiques de standardisation: {json.dumps(std_stats, indent=2)}")
+                  print(f"📊 Données après standardisation: {json.dumps(standardized, indent=2)}")
+                  print("=" * 60)
+                  
+                  return {
+                      "status": "success",
+                      "standardized_data": standardized,
+                      "standardization_stats": std_stats,
+                      "step": "standardization"
+                  }
+                  
+              except Exception as e:
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "standardization"
+                  }
+        language: python3
+        input_transforms:
+          typed_data:
+            expr: results.f.typed_data
+            type: javascript
+      summary: Standardization
+    - id: h
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: "def main(standardized_data: dict):\r
+
+          \    \"\"\"\r
+
+          \    Déduplication - clé métier / hash\r
+
+          \    \"\"\"\r
+
+          \    import hashlib\r
+
+          \    import json\r
+
+          \    from datetime import datetime\r
+
+          \    \r
+
+          \    try:\r
+
+          \        print(\"=\" * 60)\r
+
+          \        print(\"📥 Données reçues dans dedup:\")\r
+
+          \        print(f\"  - Type: {type(standardized_data)}\")\r
+
+          \        print(f\"  - Clés: {list(standardized_data.keys()) if
+          isinstance(standardized_data, dict) else 'Not a dict'}\")\r
+
+          \        print(\"=\" * 60)\r
+
+          \        \r
+
+          \        if not isinstance(standardized_data, dict):\r
+
+          \            return {\r
+
+          \                \"status\": \"error\",\r
+
+          \                \"message\": f\"standardized_data is not a dict:
+          {type(standardized_data)}\",\r
+
+          \                \"step\": \"dedup\"\r
+
+          \            }\r
+
+          \        \r
+
+          \        # Génération d'une clé de déduplication UNIQUE\r
+
+          \        # Utiliser tous les champs + timestamp pour garantir
+          l'unicité\r
+
+          \        data_string = str(sorted(standardized_data.items()))\r
+
+          \        timestamp = datetime.now().isoformat()\r
+
+          \        unique_string =
+          f\"{data_string}_{timestamp}_{id(standardized_data)}\"\r
+
+          \        dedup_key = hashlib.md5(unique_string.encode()).hexdigest()\r
+
+          \        \r
+
+          \        # Ajouter la clé aux données\r
+
+          \        standardized_data_with_key = standardized_data.copy()\r
+
+          \        standardized_data_with_key[\"dedup_key\"] = dedup_key\r
+
+          \        \r
+
+          \        print(f\"🔑 Clé de déduplication générée: {dedup_key}\")\r
+
+          \        print(\"=\" * 60)\r
+
+          \        \r
+
+          \        return {\r
+
+          \            \"status\": \"success\",\r
+
+          \            \"deduplicated_data\": standardized_data_with_key,\r
+
+          \            \"dedup_key\": dedup_key,\r
+
+          \            \"step\": \"dedup\"\r
+
+          \        }\r
+
+          \        \r
+
+          \    except Exception as e:\r
+
+          \        return {\r
+
+          \            \"status\": \"error\",\r
+
+          \            \"message\": str(e),\r
+
+          \            \"step\": \"dedup\"\r
+
+          \        }"
+        language: python3
+        input_transforms:
+          standardized_data:
+            expr: results.g.standardized_data
+            type: javascript
+      summary: Dedup
+    - id: i
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+          # py: 3.12
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          six==1.17.0
+          tzdata==2026.2
+        type: rawscript
+        content: >-
+          def main(deduplicated_data: dict):
+              """
+              Validation - règles métier + schéma
+              """
+              import json
+              
+              try:
+                  print("=" * 60)
+                  print("📥 Données reçues dans validation:")
+                  print(f"  - Type: {type(deduplicated_data)}")
+                  print(f"  - Clés: {list(deduplicated_data.keys()) if isinstance(deduplicated_data, dict) else 'Not a dict'}")
+                  print("=" * 60)
+                  
+                  if not isinstance(deduplicated_data, dict):
+                      return {
+                          "status": "error",
+                          "message": f"deduplicated_data is not a dict: {type(deduplicated_data)}",
+                          "step": "validation"
+                      }
+                  
+                  errors = []
+                  warnings = []
+                  
+                  # Règle 1 : Champ obligatoire "user_id"
+                  if "user_id" not in deduplicated_data:
+                      errors.append("Missing required field: user_id")
+                  else:
+                      print(f"  ✅ user_id présent: {deduplicated_data['user_id']}")
+                  
+                  # Règle 2 : Champ obligatoire "email_address"
+                  if "email_address" not in deduplicated_data:
+                      errors.append("Missing required field: email_address")
+                  else:
+                      print(f"  ✅ email_address présent: {deduplicated_data['email_address']}")
+                  
+                  # Règle 3 : Montant positif
+                  if "amount" in deduplicated_data:
+                      if deduplicated_data["amount"] < 0:
+                          errors.append(f"Amount must be positive: {deduplicated_data['amount']}")
+                      elif deduplicated_data["amount"] > 10000:
+                          warnings.append(f"Amount is very high: {deduplicated_data['amount']}")
+                      else:
+                          print(f"  ✅ amount valide: {deduplicated_data['amount']}")
+                  
+                  # Règle 4 : Format email
+                  if "email_address" in deduplicated_data:
+                      email = deduplicated_data["email_address"]
+                      if "@" not in email or "." not in email:
+                          errors.append(f"Invalid email format: {email}")
+                      else:
+                          print(f"  ✅ email valide: {email}")
+                  
+                  # Règle 5 : Code pays valide
+                  if "country_code" in deduplicated_data:
+                      valid_countries = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
+                      if deduplicated_data["country_code"] not in valid_countries:
+                          warnings.append(f"Unknown country code: {deduplicated_data['country_code']}")
+                      else:
+                          print(f"  ✅ country_code valide: {deduplicated_data['country_code']}")
+                  
+                  is_valid = len(errors) == 0
+                  
+                  print("=" * 60)
+                  print(f"📊 Résultat de la validation:")
+                  print(f"  - Statut: {'✅ VALIDE' if is_valid else '❌ REJETÉ'}")
+                  print(f"  - Erreurs: {len(errors)}")
+                  print(f"  - Avertissements: {len(warnings)}")
+                  if errors:
+                      print(f"  - Détails erreurs: {json.dumps(errors, indent=2)}")
+                  if warnings:
+                      print(f"  - Détails avertissements: {json.dumps(warnings, indent=2)}")
+                  print("=" * 60)
+                  
+                  return {
+                      "status": "valid" if is_valid else "rejected",
+                      "validated_data": deduplicated_data if is_valid else None,
+                      "errors": errors,
+                      "warnings": warnings,
+                      "is_valid": is_valid,
+                      "step": "validation"
+                  }
+                  
+              except Exception as e:
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "validation"
+                  }
+        language: python3
+        input_transforms:
+          deduplicated_data:
+            expr: results.h.deduplicated_data
+            type: javascript
+      summary: Validation
+    - id: j
+      value:
+        type: branchone
+        default:
+          - id: n
+            value:
+              lock: |-
+                # workspace-dependencies-mode: manual
+                # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+                # py: 3.12
+                dnspython==2.8.0
+                et-xmlfile==2.0.0
+                numpy==1.26.4
+                openpyxl==3.1.2
+                pandas==2.2.0
+                pymongo==4.6.1
+                python-dateutil==2.8.2
+                pytz==2026.2
+                six==1.17.0
+                tzdata==2026.2
+              type: rawscript
+              content: >-
+                def main(validated_data: dict):
+                    """
+                    Enrichissement - métadonnées, source, horodatage
+                    """
+                    import json
+                    from datetime import datetime
+                    
+                    try:
+                        print("=" * 60)
+                        print("📥 Données reçues dans enrichment:")
+                        print(f"  - Type: {type(validated_data)}")
+                        print(f"  - Clés: {list(validated_data.keys()) if isinstance(validated_data, dict) else 'Not a dict'}")
+                        print("=" * 60)
+                        
+                        if not isinstance(validated_data, dict):
+                            return {
+                                "status": "error",
+                                "message": f"validated_data is not a dict: {type(validated_data)}",
+                                "step": "enrichment"
+                            }
+                        
+                        # Enrichissement des données
+                        enriched = validated_data.copy()
+                        enriched.update({
+                            "enriched_at": datetime.now().isoformat(),
+                            "pipeline_version": "1.0.0",
+                            "source_system": "windmill_pipeline",
+                            "processing_timestamp": datetime.now().timestamp()
+                        })
+                        
+                        print(f"📊 Données enrichies avec:")
+                        print(f"  - enriched_at: {enriched['enriched_at']}")
+                        print(f"  - pipeline_version: {enriched['pipeline_version']}")
+                        print(f"  - source_system: {enriched['source_system']}")
+                        print("=" * 60)
+                        
+                        return {
+                            "status": "success",
+                            "enriched_data": enriched,
+                            "step": "enrichment"
+                        }
+                        
+                    except Exception as e:
+                        return {
+                            "status": "error",
+                            "message": str(e),
+                            "step": "enrichment"
+                        }
+              language: python3
+              input_transforms:
+                validated_data:
+                  expr: results.i.validated_data
+                  type: javascript
+            summary: Enrichment
+          - id: l
+            value:
+              lock: |-
+                # workspace-dependencies-mode: manual
+                # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+                # py: 3.12
+                dnspython==2.8.0
+                et-xmlfile==2.0.0
+                numpy==1.26.4
+                openpyxl==3.1.2
+                pandas==2.2.0
+                pymongo==4.6.1
+                python-dateutil==2.8.2
+                pytz==2026.2
+                six==1.17.0
+                tzdata==2026.2
+              type: rawscript
+              content: >-
+                from typing import Literal, Dict, Any
+
+                from datetime import datetime
+
+                import json
+
+
+                def main(
+                    data: Dict[str, Any],
+                    collection: Literal["raw_data", "normalized_data", "rejected_data"] = "normalized_data"
+                ):
+                    """
+                    Écriture dans MongoDB
+                    """
+                    try:
+                        from pymongo import MongoClient
+                        
+                        print("=" * 60)
+                        print("📥 Données reçues dans mongodb_writer:")
+                        print(f"  - collection: {collection}")
+                        print(f"  - Type de data: {type(data)}")
+                        print(f"  - Clés de data: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                        print("=" * 60)
+                        
+                        # Connexion à MongoDB
+                        client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                        db = client["data_pipeline"]
+                        coll = db[collection]
+                        
+                        # Ajout d'horodatage
+                        document = data.copy() if isinstance(data, dict) else {"data": data}
+                        document["written_at"] = datetime.now().isoformat()
+                        document["_collection"] = collection
+                        
+                        # Si dedup_key est null ou n'existe pas, générer une clé unique
+                        if "dedup_key" not in document or not document["dedup_key"]:
+                            import hashlib
+                            import json
+                            # Générer une clé unique basée sur les données + timestamp
+                            data_string = json.dumps(document, sort_keys=True, default=str)
+                            unique_string = f"{data_string}_{datetime.now().isoformat()}"
+                            document["dedup_key"] = hashlib.md5(unique_string.encode()).hexdigest()
+                            print(f"🔑 Nouvelle dedup_key générée: {document['dedup_key']}")
+                        
+                        # Vérifier si un document avec ce dedup_key existe déjà
+                        existing = coll.find_one({"dedup_key": document["dedup_key"]})
+                        if existing:
+                            print(f"⚠️ Document avec dedup_key déjà existant: {document['dedup_key']}")
+                            print("🔄 Mise à jour du document existant")
+                            
+                            # Mettre à jour le document existant
+                            result = coll.update_one(
+                                {"dedup_key": document["dedup_key"]},
+                                {"$set": document}
+                            )
+                            
+                            return {
+                                "status": "success",
+                                "inserted_id": str(existing["_id"]),
+                                "collection": collection,
+                                "updated": True,
+                                "step": "mongodb_write"
+                            }
+                        
+                        # Insertion normale
+                        result = coll.insert_one(document)
+                        
+                        print(f"✅ Données insérées dans '{collection}'")
+                        print(f"  - ID: {result.inserted_id}")
+                        print(f"  - dedup_key: {document['dedup_key']}")
+                        print("=" * 60)
+                        
+                        return {
+                            "status": "success",
+                            "inserted_id": str(result.inserted_id),
+                            "collection": collection,
+                            "updated": False,
+                            "dedup_key": document["dedup_key"],
+                            "step": "mongodb_write"
+                        }
+                        
+                    except Exception as e:
+                        return {
+                            "status": "error",
+                            "message": str(e),
+                            "step": "mongodb_write"
+                        }
+              language: python3
+              input_transforms:
+                data:
+                  expr: results.i.validated_data
+                  type: javascript
+                collection:
+                  type: static
+                  value: rejected_data
+            summary: MongoDB_Writer
+        branches:
+          - expr: results.i.status == "valid"
+            modules:
+              - id: m
+                value:
+                  lock: |-
+                    # workspace-dependencies-mode: manual
+                    # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+                    # py: 3.12
+                    dnspython==2.8.0
+                    et-xmlfile==2.0.0
+                    numpy==1.26.4
+                    openpyxl==3.1.2
+                    pandas==2.2.0
+                    pymongo==4.6.1
+                    python-dateutil==2.8.2
+                    pytz==2026.2
+                    six==1.17.0
+                    tzdata==2026.2
+                  type: rawscript
+                  content: >-
+                    def main(validated_data: dict):
+                        """
+                        Enrichissement - métadonnées, source, horodatage
+                        """
+                        import json
+                        from datetime import datetime
+                        
+                        try:
+                            print("=" * 60)
+                            print("📥 Données reçues dans enrichment:")
+                            print(f"  - Type: {type(validated_data)}")
+                            print(f"  - Clés: {list(validated_data.keys()) if isinstance(validated_data, dict) else 'Not a dict'}")
+                            print("=" * 60)
+                            
+                            if not isinstance(validated_data, dict):
+                                return {
+                                    "status": "error",
+                                    "message": f"validated_data is not a dict: {type(validated_data)}",
+                                    "step": "enrichment"
+                                }
+                            
+                            # Enrichissement des données
+                            enriched = validated_data.copy()
+                            enriched.update({
+                                "enriched_at": datetime.now().isoformat(),
+                                "pipeline_version": "1.0.0",
+                                "source_system": "windmill_pipeline",
+                                "processing_timestamp": datetime.now().timestamp()
+                            })
+                            
+                            print(f"📊 Données enrichies avec:")
+                            print(f"  - enriched_at: {enriched['enriched_at']}")
+                            print(f"  - pipeline_version: {enriched['pipeline_version']}")
+                            print(f"  - source_system: {enriched['source_system']}")
+                            print("=" * 60)
+                            
+                            return {
+                                "status": "success",
+                                "enriched_data": enriched,
+                                "step": "enrichment"
+                            }
+                            
+                        except Exception as e:
+                            return {
+                                "status": "error",
+                                "message": str(e),
+                                "step": "enrichment"
+                            }
+                  language: python3
+                  input_transforms:
+                    validated_data:
+                      expr: results.i.validated_data
+                      type: javascript
+                summary: Enrichement
+              - id: k
+                value:
+                  lock: |-
+                    # workspace-dependencies-mode: manual
+                    # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
+                    # py: 3.12
+                    dnspython==2.8.0
+                    et-xmlfile==2.0.0
+                    numpy==1.26.4
+                    openpyxl==3.1.2
+                    pandas==2.2.0
+                    pymongo==4.6.1
+                    python-dateutil==2.8.2
+                    pytz==2026.2
+                    six==1.17.0
+                    tzdata==2026.2
+                  type: rawscript
+                  content: "from typing import Literal, Dict, Any\r
+
+                    from datetime import datetime\r
+
+                    import json\r
+
+                    \r
+
+                    def main(\r
+
+                    \    data: Dict[str, Any],\r
+
+                    \    collection: Literal[\"raw_data\", \"normalized_data\",
+                    \"rejected_data\"] = \"normalized_data\"\r
+
+                    ):\r
+
+                    \    \"\"\"\r
+
+                    \    Écriture dans MongoDB\r
+
+                    \    \"\"\"\r
+
+                    \    try:\r
+
+                    \        from pymongo import MongoClient\r
+
+                    \        \r
+
+                    \        print(\"=\" * 60)\r
+
+                    \        print(\"📥 Données reçues dans mongodb_writer:\")\r
+
+                    \        print(f\"  - collection: {collection}\")\r
+
+                    \        print(f\"  - Type de data: {type(data)}\")\r
+
+                    \        print(f\"  - Clés de data: {list(data.keys()) if
+                    isinstance(data, dict) else 'Not a dict'}\")\r
+
+                    \        print(\"=\" * 60)\r
+
+                    \        \r
+
+                    \        # Connexion à MongoDB\r
+
+                    \        client =
+                    MongoClient(\"mongodb://admin:changeme@mongodb:27017/\")\r
+
+                    \        db = client[\"data_pipeline\"]\r
+
+                    \        coll = db[collection]\r
+
+                    \        \r
+
+                    \        # Ajout d'horodatage\r
+
+                    \        document = data.copy() if isinstance(data, dict)
+                    else {\"data\": data}\r
+
+                    \        document[\"written_at\"] =
+                    datetime.now().isoformat()\r
+
+                    \        document[\"_collection\"] = collection\r
+
+                    \        \r
+
+                    \        # Si dedup_key est null ou n'existe pas, générer
+                    une clé unique\r
+
+                    \        if \"dedup_key\" not in document or not
+                    document[\"dedup_key\"]:\r
+
+                    \            import hashlib\r
+
+                    \            import json\r
+
+                    \            # Générer une clé unique basée sur les données
+                    + timestamp\r
+
+                    \            data_string = json.dumps(document,
+                    sort_keys=True, default=str)\r
+
+                    \            unique_string =
+                    f\"{data_string}_{datetime.now().isoformat()}\"\r
+
+                    \            document[\"dedup_key\"] =
+                    hashlib.md5(unique_string.encode()).hexdigest()\r
+
+                    \            print(f\"🔑 Nouvelle dedup_key générée:
+                    {document['dedup_key']}\")\r
+
+                    \        \r
+
+                    \        # Vérifier si un document avec ce dedup_key existe
+                    déjà\r
+
+                    \        existing = coll.find_one({\"dedup_key\":
+                    document[\"dedup_key\"]})\r
+
+                    \        if existing:\r
+
+                    \            print(f\"⚠️ Document avec dedup_key déjà
+                    existant: {document['dedup_key']}\")\r
+
+                    \            print(\"🔄 Mise à jour du document
+                    existant\")\r
+
+                    \            \r
+
+                    \            # Mettre à jour le document existant\r
+
+                    \            result = coll.update_one(\r
+
+                    \                {\"dedup_key\": document[\"dedup_key\"]},\r
+
+                    \                {\"$set\": document}\r
+
+                    \            )\r
+
+                    \            \r
+
+                    \            return {\r
+
+                    \                \"status\": \"success\",\r
+
+                    \                \"inserted_id\": str(existing[\"_id\"]),\r
+
+                    \                \"collection\": collection,\r
+
+                    \                \"updated\": True,\r
+
+                    \                \"step\": \"mongodb_write\"\r
+
+                    \            }\r
+
+                    \        \r
+
+                    \        # Insertion normale\r
+
+                    \        result = coll.insert_one(document)\r
+
+                    \        \r
+
+                    \        print(f\"✅ Données insérées dans
+                    '{collection}'\")\r
+
+                    \        print(f\"  - ID: {result.inserted_id}\")\r
+
+                    \        print(f\"  - dedup_key:
+                    {document['dedup_key']}\")\r
+
+                    \        print(\"=\" * 60)\r
+
+                    \        \r
+
+                    \        return {\r
+
+                    \            \"status\": \"success\",\r
+
+                    \            \"inserted_id\": str(result.inserted_id),\r
+
+                    \            \"collection\": collection,\r
+
+                    \            \"updated\": False,\r
+
+                    \            \"dedup_key\": document[\"dedup_key\"],\r
+
+                    \            \"step\": \"mongodb_write\"\r
+
+                    \        }\r
+
+                    \        \r
+
+                    \    except Exception as e:\r
+
+                    \        return {\r
+
+                    \            \"status\": \"error\",\r
+
+                    \            \"message\": str(e),\r
+
+                    \            \"step\": \"mongodb_write\"\r
+
+                    \        }"
+                  language: python3
+                  input_transforms:
+                    data:
+                      expr: results.i.validated_data
+                      type: javascript
+                    collection:
+                      type: static
+                      value: normalized_data
+                summary: MongoDB_Writer
+            summary: ""
+            parallel: true
+            skip_failure: true
+      summary: ""
+  flow_env: {}
+  groups: []
+schema:
+  type: object
+  properties:
+    source_type:
+      type: string
+      description: Type de source (csv, api, json, excel, html)
+      default: csv
+      enum:
+        - csv
+        - api
+        - json
+        - excel
+        - html
+    source_path:
+      type: string
+      description: Chemin ou URL de la source
+      default: /data/test.csv
+    format:
+      type: string
+      description: Format des données
+      default: json
+      enum:
+        - csv
+        - excel
+        - json
+        - html
+        - parquet
+  required:
+    - source_type
+    - source_path
+  order:
+    - source_type
+    - source_path
+    - format

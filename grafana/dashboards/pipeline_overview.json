@@ -24,13 +24,14 @@
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 0, "y": 1},
       "targets": [
-        {"expr": "windmill_pipeline_raw_data_total", "refId": "A", "legendFormat": "Brutes"}
+        {"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"}
       ],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
-          "unit": "short"
+          "unit": "short",
+          "mappings": []
         }
       },
       "options": {
@@ -45,13 +46,14 @@
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 4, "y": 1},
       "targets": [
-        {"expr": "windmill_pipeline_normalized_data_total", "refId": "A", "legendFormat": "Normalisées"}
+        {"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "A", "legendFormat": "Normalisées"}
       ],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
-          "unit": "short"
+          "unit": "short",
+          "mappings": []
         }
       },
       "options": {
@@ -66,13 +68,14 @@
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 8, "y": 1},
       "targets": [
-        {"expr": "windmill_pipeline_rejected_data_total", "refId": "A", "legendFormat": "Rejetées"}
+        {"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "A", "legendFormat": "Rejetées"}
       ],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}]},
-          "unit": "short"
+          "unit": "short",
+          "mappings": []
         }
       },
       "options": {
@@ -87,13 +90,14 @@
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 12, "y": 1},
       "targets": [
-        {"expr": "windmill_pipeline_raw_pending_total", "refId": "A", "legendFormat": "En attente"}
+        {"expr": "windmill_pipeline_raw_pending_total_ratio", "refId": "A", "legendFormat": "En attente"}
       ],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}]},
-          "unit": "short"
+          "unit": "short",
+          "mappings": []
         }
       },
       "options": {
@@ -108,13 +112,14 @@
       "type": "stat",
       "gridPos": {"h": 3, "w": 4, "x": 16, "y": 1},
       "targets": [
-        {"expr": "windmill_pipeline_raw_processing_total", "refId": "A", "legendFormat": "En traitement"}
+        {"expr": "windmill_pipeline_raw_processing_total_ratio", "refId": "A", "legendFormat": "En traitement"}
       ],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]},
-          "unit": "short"
+          "unit": "short",
+          "mappings": []
         }
       },
       "options": {
@@ -129,9 +134,9 @@
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
       "targets": [
-        {"expr": "windmill_pipeline_raw_data_total", "legendFormat": "Brutes", "refId": "A"},
-        {"expr": "windmill_pipeline_normalized_data_total", "legendFormat": "Normalisées", "refId": "B"},
-        {"expr": "windmill_pipeline_rejected_data_total", "legendFormat": "Rejetées", "refId": "C"}
+        {"expr": "windmill_pipeline_raw_data_total_ratio", "legendFormat": "Brutes", "refId": "A"},
+        {"expr": "windmill_pipeline_normalized_data_total_ratio", "legendFormat": "Normalisées", "refId": "B"},
+        {"expr": "windmill_pipeline_rejected_data_total_ratio", "legendFormat": "Rejetées", "refId": "C"}
       ],
       "fieldConfig": {
         "defaults": {
@@ -141,12 +146,16 @@
             "drawStyle": "line",
             "fillOpacity": 10,
             "lineInterpolation": "linear",
-            "lineWidth": 2
-          }
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never"
+          },
+          "unit": "short"
         }
       },
       "options": {
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "multi", "sort": "none"}
       }
     },
     {
@@ -155,7 +164,7 @@
       "type": "piechart",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
       "targets": [
-        {"expr": "windmill_pipeline_raw_by_source", "refId": "A"}
+        {"expr": "windmill_pipeline_raw_by_source_ratio", "refId": "A"}
       ],
       "fieldConfig": {
         "defaults": {
@@ -164,7 +173,8 @@
         }
       },
       "options": {
-        "displayLabels": ["name", "percent"]
+        "displayLabels": ["name", "percent"],
+        "legend": {"displayMode": "list", "placement": "right"}
       }
     },
     {
@@ -173,11 +183,11 @@
       "type": "table",
       "gridPos": {"h": 6, "w": 24, "x": 0, "y": 12},
       "targets": [
-        {"expr": "windmill_pipeline_raw_data_total", "refId": "A", "legendFormat": "Brutes"},
-        {"expr": "windmill_pipeline_normalized_data_total", "refId": "B", "legendFormat": "Normalisées"},
-        {"expr": "windmill_pipeline_rejected_data_total", "refId": "C", "legendFormat": "Rejetées"},
-        {"expr": "windmill_pipeline_raw_pending_total", "refId": "D", "legendFormat": "En attente"},
-        {"expr": "windmill_pipeline_raw_processing_total", "refId": "E", "legendFormat": "En traitement"}
+        {"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"},
+        {"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "B", "legendFormat": "Normalisées"},
+        {"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "C", "legendFormat": "Rejetées"},
+        {"expr": "windmill_pipeline_raw_pending_total_ratio", "refId": "D", "legendFormat": "En attente"},
+        {"expr": "windmill_pipeline_raw_processing_total_ratio", "refId": "E", "legendFormat": "En traitement"}
       ],
       "fieldConfig": {
         "defaults": {
@@ -187,7 +197,8 @@
       },
       "options": {
         "showHeader": true,
-        "sortBy": []
+        "sortBy": [],
+        "cellHeight": "sm"
       }
     }
   ],

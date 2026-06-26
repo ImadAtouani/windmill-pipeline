@@ -249,13 +249,52 @@ curl http://localhost:3000              # Grafana
 
 1. Cliquez sur **"Run"**
 2. Entrez les paramètres :
-   ```json
-   {
-     "source_type": "csv",
-     "source_path": "/data/sales_2024.csv",
-     "format": "csv"
-   }
-   ```
+
+**Run 1 : CSV**
+```json
+{
+  "source_type": "csv",
+  "source_path": "/data/sales_2024.csv",
+  "format": "csv"
+}
+```
+
+**Run 2 : API**
+```json
+{
+  "source_type": "api",
+  "source_path": "GET /api/users",
+  "format": "json"
+}
+```
+
+**Run 3 : JSON**
+```json
+{
+  "source_type": "json",
+  "source_path": "/data/products.json",
+  "format": "json"
+}
+```
+
+**Run 4 : Excel**
+```json
+{
+  "source_type": "excel",
+  "source_path": "/data/inventory.xlsx",
+  "format": "excel"
+}
+```
+
+**Run 5 : HTML**
+```json
+{
+  "source_type": "html",
+  "source_path": "https://example.com/products",
+  "format": "html"
+}
+```
+
 3. Cliquez sur **"Run Now"**
 4. Observez l'exécution en temps réel
 
@@ -282,28 +321,123 @@ db.rejected_data.find().pretty()
 
 ```bash
 # Voir les métriques du pipeline
-curl http://localhost:8890/metrics | grep "windmill_pipeline"
+curl -s http://localhost:8890/metrics | grep "pipeline"
 
 # Résultat attendu :
 # windmill_pipeline_raw_data_total_ratio 5
 # windmill_pipeline_normalized_data_total_ratio 5
 # windmill_pipeline_rejected_data_total_ratio 0
 # windmill_pipeline_raw_pending_total_ratio 0
-# windmill_pipeline_raw_processing_total_ratio 5
+# windmill_pipeline_raw_processing_total_ratio 0
 # windmill_pipeline_raw_by_source_ratio{source_type="api"} 1
 # windmill_pipeline_raw_by_source_ratio{source_type="csv"} 1
 # windmill_pipeline_raw_by_source_ratio{source_type="excel"} 1
 # windmill_pipeline_raw_by_source_ratio{source_type="html"} 1
 # windmill_pipeline_raw_by_source_ratio{source_type="json"} 1
+# windmill_pipeline_latency_last_milliseconds{script="ingestion"} 13.92
+# windmill_pipeline_cpu_percent{script="ingestion"} 6.64
+# windmill_pipeline_memory_mb_MB{script="ingestion"} 28.86
+# windmill_pipeline_error_rate_percent{script="ingestion"} 0
 ```
 
 ### Méthode 2 : Avec les données de test
 
-Les données de test ont été automatiquement insérées dans MongoDB lors du premier démarrage :
+```bash
+# Réinsérer les données de test
+docker exec -it windmill-mongodb-1 mongosh -u admin -p changeme --eval '
+use data_pipeline;
 
-```javascript
-// Voir les données de test
-db.raw_data.find({ "status": "pending" }).pretty()
+db.raw_data.insertMany([
+    {
+        source_type: "csv",
+        source_path: "/data/sales_2024.csv",
+        ingested_at: new Date(),
+        step: "ingestion",
+        raw_payload: {
+            data: {
+                id: "001",
+                name: "John Doe",
+                amount: "1250.50",
+                date: "2024-01-15",
+                country: "FR",
+                email: "john.doe@example.com"
+            }
+        },
+        status: "pending"
+    },
+    {
+        source_type: "api",
+        source_path: "GET /api/users",
+        ingested_at: new Date(),
+        step: "ingestion",
+        raw_payload: {
+            data: {
+                id: "002",
+                name: "Jane Smith",
+                amount: "2500.00",
+                date: "2024-01-16",
+                country: "DE",
+                email: "jane.smith@example.com"
+            }
+        },
+        status: "pending"
+    },
+    {
+        source_type: "json",
+        source_path: "/data/products.json",
+        ingested_at: new Date(),
+        step: "ingestion",
+        raw_payload: {
+            data: {
+                id: "003",
+                name: "Bob Johnson",
+                amount: "750.25",
+                date: "2024-01-17",
+                country: "US",
+                email: "bob.johnson@example.com"
+            }
+        },
+        status: "pending"
+    },
+    {
+        source_type: "excel",
+        source_path: "/data/inventory.xlsx",
+        ingested_at: new Date(),
+        step: "ingestion",
+        raw_payload: {
+            data: {
+                id: "004",
+                name: "Alice Brown",
+                amount: "3200.00",
+                date: "2024-01-18",
+                country: "UK",
+                email: "alice.brown@example.com"
+            }
+        },
+        status: "pending"
+    },
+    {
+        source_type: "html",
+        source_path: "https://example.com/products",
+        ingested_at: new Date(),
+        step: "ingestion",
+        raw_payload: {
+            data: {
+                id: "005",
+                name: "Charlie Davis",
+                amount: "890.75",
+                date: "2024-01-19",
+                country: "CA",
+                email: "charlie.davis@example.com"
+            }
+        },
+        status: "pending"
+    }
+]);
+
+print("✅ Données de test insérées: " + db.raw_data.count() + " documents");
+print("📊 En attente: " + db.raw_data.find({ status: "pending" }).count());
+'
 ```
 
 ---
@@ -312,14 +446,23 @@ db.raw_data.find({ "status": "pending" }).pretty()
 
 ### Métriques disponibles
 
-| Métrique | Description |
-|----------|-------------|
-| `windmill_pipeline_raw_data_total_ratio` | Nombre total de données brutes |
-| `windmill_pipeline_normalized_data_total_ratio` | Nombre total de données normalisées |
-| `windmill_pipeline_rejected_data_total_ratio` | Nombre total de données rejetées |
-| `windmill_pipeline_raw_pending_total_ratio` | Nombre de données en attente |
-| `windmill_pipeline_raw_processing_total_ratio` | Nombre de données en traitement |
-| `windmill_pipeline_raw_by_source_ratio` | Répartition des données par source |
+| Métrique | Description | Unité |
+|----------|-------------|-------|
+| `windmill_pipeline_raw_data_total_ratio` | Nombre total de données brutes | 1 |
+| `windmill_pipeline_normalized_data_total_ratio` | Nombre total de données normalisées | 1 |
+| `windmill_pipeline_rejected_data_total_ratio` | Nombre total de données rejetées | 1 |
+| `windmill_pipeline_raw_pending_total_ratio` | Nombre de données en attente | 1 |
+| `windmill_pipeline_raw_processing_total_ratio` | Nombre de données en traitement | 1 |
+| `windmill_pipeline_raw_by_source_ratio` | Répartition des données par source | 1 |
+| `windmill_pipeline_latency_last_milliseconds` | Dernière durée d'exécution par script | ms |
+| `windmill_pipeline_latency_avg_milliseconds` | Durée moyenne d'exécution par script | ms |
+| `windmill_pipeline_cpu_percent` | CPU par script | % |
+| `windmill_pipeline_cpu_avg_percent` | CPU moyenne par script | % |
+| `windmill_pipeline_memory_mb_MB` | Mémoire par script | MB |
+| `windmill_pipeline_memory_avg_MB` | Mémoire moyenne par script | MB |
+| `windmill_pipeline_errors_total_ratio` | Nombre d'erreurs par script | 1 |
+| `windmill_pipeline_success_total_ratio` | Nombre de succès par script | 1 |
+| `windmill_pipeline_error_rate_percent` | Taux d'erreur par script | % |
 
 ### Dashboards Grafana
 
@@ -334,6 +477,87 @@ Le dashboard affiche :
 - **Statistiques** : Données brutes, normalisées, rejetées, en attente, en traitement
 - **Évolution des données** : Graphique temporel des 3 métriques principales
 - **Répartition par source** : Diagramme circulaire des sources de données
+- **Latence par tâche** : Dernière exécution et moyenne
+- **Taux d'erreur** : Par script
+- **CPU par tâche** : Utilisation CPU par script
+- **Mémoire par tâche** : Utilisation mémoire par script
+
+---
+
+## 🧪 Tester l'Observabilité
+
+### Tester l'OTEL Collector
+
+```bash
+# Voir toutes les métriques
+curl -s http://localhost:8890/metrics | grep "pipeline"
+
+# Métriques de comptage
+curl -s http://localhost:8890/metrics | grep "_data_total_ratio"
+
+# Métriques de latence
+curl -s http://localhost:8890/metrics | grep "latency"
+
+# Métriques CPU
+curl -s http://localhost:8890/metrics | grep "cpu"
+
+# Métriques Mémoire
+curl -s http://localhost:8890/metrics | grep "memory"
+
+# Métriques d'erreurs
+curl -s http://localhost:8890/metrics | grep "error"
+```
+
+### Tester Prometheus
+
+```bash
+# Données brutes
+curl -s 'http://localhost:9090/api/v1/query?query=windmill_pipeline_raw_data_total_ratio'
+
+# Données normalisées
+curl -s 'http://localhost:9090/api/v1/query?query=windmill_pipeline_normalized_data_total_ratio'
+
+# Données rejetées
+curl -s 'http://localhost:9090/api/v1/query?query=windmill_pipeline_rejected_data_total_ratio'
+
+# Latence
+curl -s 'http://localhost:9090/api/v1/query?query=windmill_pipeline_latency_last_milliseconds'
+
+# CPU
+curl -s 'http://localhost:9090/api/v1/query?query=windmill_pipeline_cpu_percent'
+
+# Mémoire
+curl -s 'http://localhost:9090/api/v1/query?query=windmill_pipeline_memory_mb_MB'
+
+# Taux d'erreur
+curl -s 'http://localhost:9090/api/v1/query?query=windmill_pipeline_error_rate_percent'
+```
+
+**Dans le navigateur :** http://localhost:9090
+- Aller dans **"Graph"** → rechercher les métriques
+- Aller dans **"Targets"** → vérifier que tous sont **UP**
+
+### Tester Tempo
+
+```bash
+# Vérifier l'état
+curl -s http://localhost:3200/status
+# Résultat : {"status":"running"}
+
+# Vérifier le ready
+curl -s http://localhost:3200/ready
+# Résultat : ready
+```
+
+**Dans le navigateur :** http://localhost:3200/status
+
+### Tester Grafana
+
+1. Ouvrir http://localhost:3000
+2. User: `admin` / Password: `admin`
+3. Menu → **"Data Sources"** → Vérifier Prometheus et Tempo
+4. Menu → **"Explore"** → Tester les requêtes
+5. Menu → **"Dashboards"** → **"Pipeline de Normalisation - Vue Globale"**
 
 ---
 
@@ -427,7 +651,22 @@ docker-compose logs mongodb
 # 1. Vérifier que send_metrics.py est bien dans le Flow
 # 2. Réexécuter le Flow
 # 3. Vérifier les métriques
-curl http://localhost:8890/metrics | grep "windmill_pipeline"
+curl -s http://localhost:8890/metrics | grep "pipeline"
+```
+
+### Nettoyer les données et recommencer
+
+```bash
+# Supprimer les volumes
+docker-compose down -v
+
+# Supprimer les volumes manuellement
+docker volume rm windmill_db_data windmill_mongodb_data windmill_prometheus_data windmill_tempo_data windmill_grafana_data 2>/dev/null || true
+
+# Relancer
+docker-compose up -d
+
+# Réinsérer les données de test (voir section "Méthode 2")
 ```
 
 ### Problèmes de ports
@@ -438,15 +677,6 @@ netstat -ano | findstr "4317 4318 4319 8890 9090 3000 3200 55680"
 
 # Relancer proprement
 docker-compose down && docker-compose up -d
-```
-
-### Volume "file exists" error
-
-```bash
-# Cette erreur n'est pas bloquante. Si vous voulez la résoudre :
-docker-compose down -v
-docker volume rm windmill_worker_dependency_cache 2>/dev/null || true
-docker-compose up -d
 ```
 
 ---
@@ -461,6 +691,9 @@ docker-compose up -d
 
 # Arrêter tous les services
 docker-compose down
+
+# Arrêter et supprimer les volumes (⚠️ perte de données)
+docker-compose down -v
 
 # Redémarrer un service
 docker-compose restart windmill_server
@@ -482,20 +715,39 @@ show collections
 db.raw_data.count()
 db.normalized_data.count()
 db.rejected_data.count()
+db.script_metrics.count()
 ```
 
 ### Observabilité
 
 ```bash
 # Voir les métriques OpenTelemetry
-curl http://localhost:8890/metrics | grep "windmill_pipeline"
+curl -s http://localhost:8890/metrics | grep "pipeline"
 
 # Voir les métriques Prometheus
-curl 'http://localhost:9090/api/v1/query?query=windmill_pipeline_raw_data_total_ratio'
+curl -s 'http://localhost:9090/api/v1/query?query=windmill_pipeline_raw_data_total_ratio'
 
 # Vérifier l'état de Tempo
-curl http://localhost:3200/status
-curl http://localhost:3200/ready
+curl -s http://localhost:3200/status
+curl -s http://localhost:3200/ready
+
+# Supprimer les métriques Prometheus
+curl -X POST -g 'http://localhost:9090/api/v1/admin/tsdb/delete_series?match[]={__name__=~"windmill_pipeline.*"}'
+curl -X POST 'http://localhost:9090/api/v1/admin/tsdb/clean_tombstones'
+```
+
+### Nettoyage complet des données
+
+```bash
+docker exec -it windmill-mongodb-1 mongosh -u admin -p changeme --eval '
+use data_pipeline;
+db.raw_data.deleteMany({});
+db.normalized_data.deleteMany({});
+db.rejected_data.deleteMany({});
+db.script_metrics.deleteMany({});
+db.resource_metrics.deleteMany({});
+print("✅ Toutes les données supprimées");
+'
 ```
 
 ---
@@ -562,12 +814,13 @@ MIT
 
 | Version | Date | Description |
 |---------|------|-------------|
-| v1.0.0 | 2026-06-25 | Version initiale |
+| v1.0.0 | 2026-06-26 | Version finale |
 | | | - Pipeline 12 étapes complet |
 | | | - MongoDB multi-collections (raw/normalized/rejected) |
 | | | - Stack OTEL + Prometheus + Tempo + Grafana |
-| | | - Dashboard Grafana prêt à l'emploi |
+| | | - Dashboard Grafana complet avec toutes les métriques |
 | | | - Données de test intégrées |
+| | | - Métriques de latence, CPU, Mémoire, Erreurs |
 | | | - Ports optimisés : OTEL Metrics sur 8890, Tempo sur 55680 |
 | | | - Métriques personnalisées via `send_metrics.py` |
 
@@ -580,6 +833,7 @@ MIT
 3. **Logs** : Configurez la rotation des logs via les variables d'environnement
 4. **Backup** : Sauvegardez régulièrement les volumes Docker
 5. **Monitoring** : Utilisez les dashboards Grafana pour surveiller la santé du pipeline
+6. **Tests** : Après chaque modification, exécutez le pipeline et vérifiez les métriques
 
 ---
 

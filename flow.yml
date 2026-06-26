@@ -5,42 +5,60 @@ value:
     - id: a
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
-        content: >
+        content: >-
+          import time
+
           from pymongo import MongoClient
 
           from datetime import datetime
 
           import json
 
+          import os
 
+
+          def get_cpu_usage():
+              """Récupère l'utilisation CPU depuis /proc/stat"""
+              try:
+                  with open('/proc/stat', 'r') as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+          def get_memory_mb():
+              """Récupère la mémoire utilisée en MB depuis /proc/self/status"""
+              try:
+                  with open('/proc/self/status', 'r') as f:
+                      for line in f:
+                          if line.startswith('VmRSS:'):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
 
           def main(source_type: str = None, source_path: str = None):
               """
               Ingestion - Récupère UNIQUEMENT les données correspondant aux filtres
               """
+              start_time = time.time()
+              script_name = "ingestion"
 
               try:
-                  # Connexion à MongoDB
                   client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                   db = client["data_pipeline"]
 
-                  # --- Construire la requête ---
                   query = {"status": "pending"}
-
                   if source_type:
                       query["source_type"] = source_type
                   if source_path:
@@ -61,6 +79,17 @@ value:
                       )
                       available = ", ".join([f"{s['_id']}: {s['count']}" for s in stats])
 
+                      duration_ms = (time.time() - start_time) * 1000
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": "No pending data found",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
+
                       return {
                           "status": "error",
                           "message": f"No pending data found with filters: {query}",
@@ -80,6 +109,16 @@ value:
                       {"_id": raw_document["_id"]}, {"$set": {"status": "processing"}}
                   )
 
+                  duration_ms = (time.time() - start_time) * 1000
+                  db.script_metrics.insert_one({
+                      "script": script_name,
+                      "duration_ms": duration_ms,
+                      "status": "success",
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "timestamp": datetime.now().isoformat()
+                  })
+
                   return {
                       "status": "success",
                       "raw_payload": raw_payload,
@@ -87,10 +126,29 @@ value:
                       "source_type": raw_document.get("source_type"),
                       "source_path": raw_document.get("source_path"),
                       "filters_used": query,
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
                       "step": "ingestion",
                   }
 
               except Exception as e:
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": str(e)[:100],
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
+                  except:
+                      pass
+
                   return {"status": "error", "message": str(e), "step": "ingestion"}
         language: python3
         input_transforms:
@@ -105,26 +163,52 @@ value:
     - id: b
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
         content: >-
+          import time
+
+          import json
+
+          import os
+
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+
+          def get_cpu_usage():
+              try:
+                  with open('/proc/stat', 'r') as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+          def get_memory_mb():
+              try:
+                  with open('/proc/self/status', 'r') as f:
+                      for line in f:
+                          if line.startswith('VmRSS:'):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
+
           def main(raw_data: dict):
               """
               Profilage - Analyse des types, colonnes, valeurs nulles
               """
-              import json
+              start_time = time.time()
+              script_name = "profiling"
               
               try:
                   print("=" * 60)
@@ -134,6 +218,18 @@ value:
                   print("=" * 60)
                   
                   if not isinstance(raw_data, dict):
+                      duration_ms = (time.time() - start_time) * 1000
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": "raw_data is not a dict",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
                       return {
                           "status": "error",
                           "message": f"raw_data is not a dict: {type(raw_data)}",
@@ -149,6 +245,18 @@ value:
                   data_types = {k: type(v).__name__ for k, v in data.items()}
                   null_values = {k: v is None for k, v in data.items()}
                   
+                  duration_ms = (time.time() - start_time) * 1000
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+                  db.script_metrics.insert_one({
+                      "script": script_name,
+                      "duration_ms": duration_ms,
+                      "status": "success",
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "timestamp": datetime.now().isoformat()
+                  })
+                  
                   return {
                       "status": "success",
                       "profile": {
@@ -157,10 +265,28 @@ value:
                           "null_values": null_values,
                           "columns": list(data.keys())
                       },
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
                       "step": "profiling"
                   }
                   
               except Exception as e:
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": str(e)[:100],
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
+                  except:
+                      pass
                   return {
                       "status": "error",
                       "message": str(e),
@@ -175,30 +301,55 @@ value:
     - id: c
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
         content: >-
+          import time
+
+          import json
+
+          import os
+
           from typing import Literal, Dict, Any
 
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+
+          def get_cpu_usage():
+              try:
+                  with open('/proc/stat', 'r') as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+          def get_memory_mb():
+              try:
+                  with open('/proc/self/status', 'r') as f:
+                      for line in f:
+                          if line.startswith('VmRSS:'):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
 
           def main(raw_data: Dict[str, Any], format: Literal["csv", "excel",
           "json", "html", "parquet"] = "json"):
               """
               Parsing - CSV, Excel, JSON, HTML, Parquet
               """
-              import json
+              start_time = time.time()
+              script_name = "parsing"
               
               try:
                   print("=" * 60)
@@ -208,13 +359,24 @@ value:
                   print("=" * 60)
                   
                   if not isinstance(raw_data, dict):
+                      duration_ms = (time.time() - start_time) * 1000
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": "raw_data is not a dict",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
                       return {
                           "status": "error",
                           "message": f"raw_data is not a dict: {type(raw_data)}",
                           "step": "parsing"
                       }
                   
-                  # Les données sont directement dans raw_data
                   records = raw_data
                   
                   print(f"📊 Données parsées: {json.dumps(records, indent=2)}")
@@ -226,13 +388,43 @@ value:
                       "record_count": len(records) if isinstance(records, dict) else 0
                   }
                   
+                  duration_ms = (time.time() - start_time) * 1000
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+                  db.script_metrics.insert_one({
+                      "script": script_name,
+                      "duration_ms": duration_ms,
+                      "status": "success",
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "timestamp": datetime.now().isoformat()
+                  })
+                  
                   return {
                       "status": "success",
                       "parsed_data": parsed_data,
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
                       "step": "parsing"
                   }
                   
               except Exception as e:
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": str(e)[:100],
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
+                  except:
+                      pass
                   return {
                       "status": "error",
                       "message": str(e),
@@ -250,80 +442,153 @@ value:
     - id: d
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
-        content: >-
+        content: >
+          import time
+
+          import json
+
+          import os
+
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+
+
+          def get_cpu_usage():
+              try:
+                  with open("/proc/stat", "r") as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+
+          def get_memory_mb():
+              try:
+                  with open("/proc/self/status", "r") as f:
+                      for line in f:
+                          if line.startswith("VmRSS:"):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
+
+
           def main(parsed_data: dict):
               """
               Mapping - champs source → modèle cible
               """
-              import json
-              
+              start_time = time.time()
+              script_name = "mapping"
+
               try:
                   print("=" * 60)
                   print("📥 Données reçues dans mapping:")
-                  print(f"  - parsed_data keys: {list(parsed_data.keys()) if isinstance(parsed_data, dict) else 'Not a dict'}")
+                  print(
+                      f"  - parsed_data keys: {list(parsed_data.keys()) if isinstance(parsed_data, dict) else 'Not a dict'}"
+                  )
                   print("=" * 60)
-                  
-                  # Récupérer les records
+
                   if isinstance(parsed_data, dict) and "records" in parsed_data:
                       records = parsed_data["records"]
                       print(f"✅ Utilisation de parsed_data['records']")
                   else:
                       records = parsed_data
                       print(f"✅ Utilisation de parsed_data directement")
-                  
+
                   if not isinstance(records, dict):
+                      duration_ms = (time.time() - start_time) * 1000
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": "records is not a dict",
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
                       return {
                           "status": "error",
                           "message": f"records is not a dict: {type(records)}",
-                          "step": "mapping"
+                          "step": "mapping",
                       }
-                  
-                  # Mapping des champs
+
                   mapping_rules = {
                       "id": "user_id",
                       "name": "full_name",
                       "amount": "amount",
                       "date": "transaction_date",
                       "country": "country_code",
-                      "email": "email_address"
+                      "email": "email_address",
                   }
-                  
+
                   mapped_data = {}
                   for source, target in mapping_rules.items():
                       if source in records:
                           mapped_data[target] = records[source]
                       else:
                           print(f"⚠️ Champ source manquant: {source}")
-                  
+
                   print(f"📊 Données mappées: {json.dumps(mapped_data, indent=2)}")
                   print("=" * 60)
-                  
+
+                  duration_ms = (time.time() - start_time) * 1000
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+                  db.script_metrics.insert_one(
+                      {
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "success",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat(),
+                      }
+                  )
+
                   return {
                       "status": "success",
                       "mapped_data": mapped_data,
-                      "step": "mapping"
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "step": "mapping",
                   }
-                  
+
               except Exception as e:
-                  return {
-                      "status": "error",
-                      "message": str(e),
-                      "step": "mapping"
-                  }
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": str(e)[:100],
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
+                  except:
+                      pass
+                  return {"status": "error", "message": str(e), "step": "mapping"}
         language: python3
         input_transforms:
           parsed_data:
@@ -333,87 +598,156 @@ value:
     - id: e
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
-        content: >-
+        content: >
+          import time
+
+          import json
+
+          import os
+
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+
+
+          def get_cpu_usage():
+              try:
+                  with open("/proc/stat", "r") as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+
+          def get_memory_mb():
+              try:
+                  with open("/proc/self/status", "r") as f:
+                      for line in f:
+                          if line.startswith("VmRSS:"):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
+
+
           def main(mapped_data: dict):
               """
               Nettoyage - trim, encodage, formats
               """
-              import json
-              
+              start_time = time.time()
+              script_name = "cleaning"
+
               try:
                   print("=" * 60)
                   print("📥 Données reçues dans cleaning:")
                   print(f"  - Type: {type(mapped_data)}")
-                  print(f"  - Clés: {list(mapped_data.keys()) if isinstance(mapped_data, dict) else 'Not a dict'}")
+                  print(
+                      f"  - Clés: {list(mapped_data.keys()) if isinstance(mapped_data, dict) else 'Not a dict'}"
+                  )
                   print("=" * 60)
-                  
+
                   if not isinstance(mapped_data, dict):
+                      duration_ms = (time.time() - start_time) * 1000
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": "mapped_data is not a dict",
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
                       return {
                           "status": "error",
                           "message": f"mapped_data is not a dict: {type(mapped_data)}",
-                          "step": "cleaning"
+                          "step": "cleaning",
                       }
-                  
+
                   print(f"📊 Données avant nettoyage: {json.dumps(mapped_data, indent=2)}")
                   print("=" * 60)
-                  
+
                   cleaned = {}
-                  cleaning_stats = {
-                      "trimmed": 0,
-                      "encoded": 0,
-                      "unchanged": 0
-                  }
-                  
+                  cleaning_stats = {"trimmed": 0, "encoded": 0, "unchanged": 0}
+
                   for key, value in mapped_data.items():
                       if isinstance(value, str):
-                          # Trim
                           trimmed = value.strip()
                           if trimmed != value:
                               cleaning_stats["trimmed"] += 1
-                          
-                          # Encodage UTF-8
-                          encoded = trimmed.encode('utf-8').decode('utf-8')
+
+                          encoded = trimmed.encode("utf-8").decode("utf-8")
                           if encoded != trimmed:
                               cleaning_stats["encoded"] += 1
                           else:
                               cleaning_stats["unchanged"] += 1
-                          
+
                           cleaned[key] = encoded
                       else:
                           cleaned[key] = value
                           cleaning_stats["unchanged"] += 1
-                  
+
                   print(f"📊 Statistiques de nettoyage: {json.dumps(cleaning_stats, indent=2)}")
                   print(f"📊 Données après nettoyage: {json.dumps(cleaned, indent=2)}")
                   print("=" * 60)
-                  
+
+                  duration_ms = (time.time() - start_time) * 1000
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+                  db.script_metrics.insert_one(
+                      {
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "success",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat(),
+                      }
+                  )
+
                   return {
                       "status": "success",
                       "cleaned_data": cleaned,
                       "cleaning_stats": cleaning_stats,
-                      "step": "cleaning"
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "step": "cleaning",
                   }
-                  
+
               except Exception as e:
-                  return {
-                      "status": "error",
-                      "message": str(e),
-                      "step": "cleaning"
-                  }
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": str(e)[:100],
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
+                  except:
+                      pass
+                  return {"status": "error", "message": str(e), "step": "cleaning"}
         language: python3
         input_transforms:
           mapped_data:
@@ -423,54 +757,92 @@ value:
     - id: f
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
-        content: >-
+        content: >
+          import time
+
+          import json
+
+          import os
+
           from typing import Literal, Dict, Any
 
           from datetime import datetime
 
-          import json
+          from pymongo import MongoClient
 
 
-          def main(
-              cleaned_data: Dict[str, Any],
-              date_format: str = "%Y-%m-%d"
-          ):
+
+          def get_cpu_usage():
+              try:
+                  with open("/proc/stat", "r") as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+
+          def get_memory_mb():
+              try:
+                  with open("/proc/self/status", "r") as f:
+                      for line in f:
+                          if line.startswith("VmRSS:"):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
+
+
+          def main(cleaned_data: Dict[str, Any], date_format: str = "%Y-%m-%d"):
               """
               Typage - date, nombre, booléen, enum
               """
-              
+              start_time = time.time()
+              script_name = "typing"
+
               try:
                   print("=" * 60)
                   print("📥 Données reçues dans typing:")
                   print(f"  - Type: {type(cleaned_data)}")
-                  print(f"  - Clés: {list(cleaned_data.keys()) if isinstance(cleaned_data, dict) else 'Not a dict'}")
+                  print(
+                      f"  - Clés: {list(cleaned_data.keys()) if isinstance(cleaned_data, dict) else 'Not a dict'}"
+                  )
                   print(f"  - date_format: {date_format}")
                   print("=" * 60)
-                  
+
                   if not isinstance(cleaned_data, dict):
+                      duration_ms = (time.time() - start_time) * 1000
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": "cleaned_data is not a dict",
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
                       return {
                           "status": "error",
                           "message": f"cleaned_data is not a dict: {type(cleaned_data)}",
-                          "step": "typing"
+                          "step": "typing",
                       }
-                  
+
                   print(f"📊 Données avant typage: {json.dumps(cleaned_data, indent=2)}")
                   print("=" * 60)
-                  
+
                   typed_data = {}
                   typing_stats = {
                       "typed_as_date": 0,
@@ -478,26 +850,27 @@ value:
                       "typed_as_bool": 0,
                       "typed_as_enum": 0,
                       "unchanged": 0,
-                      "errors": 0
+                      "errors": 0,
                   }
-                  
-                  # Liste des enums possibles (exemple)
+
                   enum_values = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
-                  
+
                   for key, value in cleaned_data.items():
                       try:
-                          # Typage des dates
-                          if key in ["date", "transaction_date", "birth_date"] and isinstance(value, str):
+                          if key in ["date", "transaction_date", "birth_date"] and isinstance(
+                              value, str
+                          ):
                               try:
-                                  typed_data[key] = datetime.strptime(value, date_format).isoformat()
+                                  typed_data[key] = datetime.strptime(
+                                      value, date_format
+                                  ).isoformat()
                                   typing_stats["typed_as_date"] += 1
                                   print(f"  ✅ {key}: '{value}' → date ({typed_data[key]})")
                               except ValueError:
                                   typed_data[key] = value
                                   typing_stats["unchanged"] += 1
                                   print(f"  ⚠️ {key}: '{value}' → impossible de typer en date")
-                          
-                          # Typage des nombres
+
                           elif key in ["amount", "price", "quantity", "value"]:
                               if isinstance(value, (int, float)):
                                   typed_data[key] = float(value)
@@ -505,20 +878,25 @@ value:
                                   print(f"  ✅ {key}: {value} → nombre ({typed_data[key]})")
                               elif isinstance(value, str):
                                   try:
-                                      # Nettoyer la chaîne (enlever les symboles €, $, etc.)
-                                      clean_value = value.replace('€', '').replace('$', '').replace(',', '').strip()
+                                      clean_value = (
+                                          value.replace("€", "")
+                                          .replace("$", "")
+                                          .replace(",", "")
+                                          .strip()
+                                      )
                                       typed_data[key] = float(clean_value)
                                       typing_stats["typed_as_number"] += 1
                                       print(f"  ✅ {key}: '{value}' → nombre ({typed_data[key]})")
                                   except ValueError:
                                       typed_data[key] = value
                                       typing_stats["unchanged"] += 1
-                                      print(f"  ⚠️ {key}: '{value}' → impossible de typer en nombre")
+                                      print(
+                                          f"  ⚠️ {key}: '{value}' → impossible de typer en nombre"
+                                      )
                               else:
                                   typed_data[key] = value
                                   typing_stats["unchanged"] += 1
-                          
-                          # Typage des booléens
+
                           elif key in ["active", "enabled", "verified", "is_valid"]:
                               if isinstance(value, bool):
                                   typed_data[key] = bool(value)
@@ -539,8 +917,7 @@ value:
                               else:
                                   typed_data[key] = value
                                   typing_stats["unchanged"] += 1
-                          
-                          # Typage des enums (ex: pays)
+
                           elif key in ["country", "country_code", "status"]:
                               if isinstance(value, str) and value in enum_values:
                                   typed_data[key] = value
@@ -549,35 +926,64 @@ value:
                               else:
                                   typed_data[key] = value
                                   typing_stats["unchanged"] += 1
-                          
-                          # Autres champs
+
                           else:
                               typed_data[key] = value
                               typing_stats["unchanged"] += 1
-                              
+
                       except Exception as e:
                           print(f"  ❌ Erreur lors du typage de {key}: {str(e)}")
                           typing_stats["errors"] += 1
                           typed_data[key] = value
-                  
+
                   print("=" * 60)
                   print(f"📊 Statistiques de typage: {json.dumps(typing_stats, indent=2)}")
                   print(f"📊 Données après typage: {json.dumps(typed_data, indent=2)}")
                   print("=" * 60)
-                  
+
+                  duration_ms = (time.time() - start_time) * 1000
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+                  db.script_metrics.insert_one(
+                      {
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "success",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat(),
+                      }
+                  )
+
                   return {
                       "status": "success" if typing_stats["errors"] == 0 else "partial",
                       "typed_data": typed_data,
                       "typing_stats": typing_stats,
-                      "step": "typing"
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "step": "typing",
                   }
-                  
+
               except Exception as e:
-                  return {
-                      "status": "error",
-                      "message": str(e),
-                      "step": "typing"
-                  }
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": str(e)[:100],
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
+                  except:
+                      pass
+                  return {"status": "error", "message": str(e), "step": "typing"}
         language: python3
         input_transforms:
           date_format:
@@ -590,52 +996,96 @@ value:
     - id: g
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
-        content: >-
+        content: >
+          import time
+
+          import json
+
+          import os
+
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+
+
+          def get_cpu_usage():
+              try:
+                  with open("/proc/stat", "r") as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+
+          def get_memory_mb():
+              try:
+                  with open("/proc/self/status", "r") as f:
+                      for line in f:
+                          if line.startswith("VmRSS:"):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
+
+
           def main(typed_data: dict):
               """
               Standardisation - noms, unités, devises, pays
               """
-              import json
-              
+              start_time = time.time()
+              script_name = "standardization"
+
               try:
                   print("=" * 60)
                   print("📥 Données reçues dans standardization:")
                   print(f"  - Type: {type(typed_data)}")
-                  print(f"  - Clés: {list(typed_data.keys()) if isinstance(typed_data, dict) else 'Not a dict'}")
+                  print(
+                      f"  - Clés: {list(typed_data.keys()) if isinstance(typed_data, dict) else 'Not a dict'}"
+                  )
                   print("=" * 60)
-                  
+
                   if not isinstance(typed_data, dict):
+                      duration_ms = (time.time() - start_time) * 1000
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": "typed_data is not a dict",
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
                       return {
                           "status": "error",
                           "message": f"typed_data is not a dict: {type(typed_data)}",
-                          "step": "standardization"
+                          "step": "standardization",
                       }
-                  
+
                   print(f"📊 Données avant standardisation: {json.dumps(typed_data, indent=2)}")
                   print("=" * 60)
-                  
+
                   standardized = typed_data.copy()
                   std_stats = {
                       "countries_normalized": 0,
                       "currencies_converted": 0,
-                      "units_normalized": 0
+                      "units_normalized": 0,
                   }
-                  
-                  # Standardisation des pays
+
                   country_mapping = {
                       "FR": "France",
                       "DE": "Germany",
@@ -646,43 +1096,83 @@ value:
                       "IT": "Italy",
                       "JP": "Japan",
                       "BR": "Brazil",
-                      "AU": "Australia"
+                      "AU": "Australia",
                   }
-                  
+
                   if "country" in standardized:
                       if standardized["country"] in country_mapping:
                           standardized["country_name"] = country_mapping[standardized["country"]]
                           std_stats["countries_normalized"] += 1
-                          print(f"  ✅ country: '{standardized['country']}' → '{standardized['country_name']}'")
-                      elif "country_code" in standardized and standardized["country_code"] in country_mapping:
-                          standardized["country_name"] = country_mapping[standardized["country_code"]]
+                          print(
+                              f"  ✅ country: '{standardized['country']}' → '{standardized['country_name']}'"
+                          )
+                      elif (
+                          "country_code" in standardized
+                          and standardized["country_code"] in country_mapping
+                      ):
+                          standardized["country_name"] = country_mapping[
+                              standardized["country_code"]
+                          ]
                           std_stats["countries_normalized"] += 1
-                          print(f"  ✅ country_code: '{standardized['country_code']}' → '{standardized['country_name']}'")
-                  
-                  # Standardisation des devises (conversion EUR → USD)
+                          print(
+                              f"  ✅ country_code: '{standardized['country_code']}' → '{standardized['country_name']}'"
+                          )
+
                   if "amount" in standardized:
                       standardized["amount_usd"] = standardized["amount"] * 1.08
                       std_stats["currencies_converted"] += 1
-                      print(f"  ✅ amount: {standardized['amount']} EUR → {standardized['amount_usd']} USD")
-                  
+                      print(
+                          f"  ✅ amount: {standardized['amount']} EUR → {standardized['amount_usd']} USD"
+                      )
+
                   print("=" * 60)
                   print(f"📊 Statistiques de standardisation: {json.dumps(std_stats, indent=2)}")
                   print(f"📊 Données après standardisation: {json.dumps(standardized, indent=2)}")
                   print("=" * 60)
-                  
+
+                  duration_ms = (time.time() - start_time) * 1000
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+                  db.script_metrics.insert_one(
+                      {
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "success",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat(),
+                      }
+                  )
+
                   return {
                       "status": "success",
                       "standardized_data": standardized,
                       "standardization_stats": std_stats,
-                      "step": "standardization"
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "step": "standardization",
                   }
-                  
+
               except Exception as e:
-                  return {
-                      "status": "error",
-                      "message": str(e),
-                      "step": "standardization"
-                  }
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": str(e)[:100],
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
+                  except:
+                      pass
+                  return {"status": "error", "message": str(e), "step": "standardization"}
         language: python3
         input_transforms:
           typed_data:
@@ -692,21 +1182,74 @@ value:
     - id: h
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
-        content: "def main(standardized_data: dict):\r
+        content: "import time\r
+
+          import hashlib\r
+
+          import json\r
+
+          import os\r
+
+          from datetime import datetime\r
+
+          from pymongo import MongoClient\r
+
+          \r
+
+          def get_cpu_usage():\r
+
+          \    try:\r
+
+          \        with open('/proc/stat', 'r') as f:\r
+
+          \            line = f.readline()\r
+
+          \            parts = line.split()\r
+
+          \            user = int(parts[1])\r
+
+          \            nice = int(parts[2])\r
+
+          \            system = int(parts[3])\r
+
+          \            idle = int(parts[4])\r
+
+          \            total = user + nice + system + idle\r
+
+          \            return round(((total - idle) / total) * 100, 2) if total
+          > 0 else 0\r
+
+          \    except:\r
+
+          \        return 0\r
+
+          \r
+
+          def get_memory_mb():\r
+
+          \    try:\r
+
+          \        with open('/proc/self/status', 'r') as f:\r
+
+          \            for line in f:\r
+
+          \                if line.startswith('VmRSS:'):\r
+
+          \                    kb = int(line.split()[1])\r
+
+          \                    return round(kb / 1024, 2)\r
+
+          \    except:\r
+
+          \        return 0\r
+
+          \r
+
+          def main(standardized_data: dict):\r
 
           \    \"\"\"\r
 
@@ -714,11 +1257,9 @@ value:
 
           \    \"\"\"\r
 
-          \    import hashlib\r
+          \    start_time = time.time()\r
 
-          \    import json\r
-
-          \    from datetime import datetime\r
+          \    script_name = \"dedup\"\r
 
           \    \r
 
@@ -739,6 +1280,31 @@ value:
 
           \        if not isinstance(standardized_data, dict):\r
 
+          \            duration_ms = (time.time() - start_time) * 1000\r
+
+          \            client =
+          MongoClient(\"mongodb://admin:changeme@mongodb:27017/\")\r
+
+          \            db = client[\"data_pipeline\"]\r
+
+          \            db.script_metrics.insert_one({\r
+
+          \                \"script\": script_name,\r
+
+          \                \"duration_ms\": duration_ms,\r
+
+          \                \"status\": \"error\",\r
+
+          \                \"error\": \"standardized_data is not a dict\",\r
+
+          \                \"cpu_percent\": get_cpu_usage(),\r
+
+          \                \"memory_mb\": get_memory_mb(),\r
+
+          \                \"timestamp\": datetime.now().isoformat()\r
+
+          \            })\r
+
           \            return {\r
 
           \                \"status\": \"error\",\r
@@ -752,11 +1318,6 @@ value:
 
           \        \r
 
-          \        # Génération d'une clé de déduplication UNIQUE\r
-
-          \        # Utiliser tous les champs + timestamp pour garantir
-          l'unicité\r
-
           \        data_string = str(sorted(standardized_data.items()))\r
 
           \        timestamp = datetime.now().isoformat()\r
@@ -767,8 +1328,6 @@ value:
           \        dedup_key = hashlib.md5(unique_string.encode()).hexdigest()\r
 
           \        \r
-
-          \        # Ajouter la clé aux données\r
 
           \        standardized_data_with_key = standardized_data.copy()\r
 
@@ -782,6 +1341,31 @@ value:
 
           \        \r
 
+          \        duration_ms = (time.time() - start_time) * 1000\r
+
+          \        client =
+          MongoClient(\"mongodb://admin:changeme@mongodb:27017/\")\r
+
+          \        db = client[\"data_pipeline\"]\r
+
+          \        db.script_metrics.insert_one({\r
+
+          \            \"script\": script_name,\r
+
+          \            \"duration_ms\": duration_ms,\r
+
+          \            \"status\": \"success\",\r
+
+          \            \"cpu_percent\": get_cpu_usage(),\r
+
+          \            \"memory_mb\": get_memory_mb(),\r
+
+          \            \"timestamp\": datetime.now().isoformat()\r
+
+          \        })\r
+
+          \        \r
+
           \        return {\r
 
           \            \"status\": \"success\",\r
@@ -790,6 +1374,12 @@ value:
 
           \            \"dedup_key\": dedup_key,\r
 
+          \            \"duration_ms\": round(duration_ms, 2),\r
+
+          \            \"cpu_percent\": get_cpu_usage(),\r
+
+          \            \"memory_mb\": get_memory_mb(),\r
+
           \            \"step\": \"dedup\"\r
 
           \        }\r
@@ -797,6 +1387,37 @@ value:
           \        \r
 
           \    except Exception as e:\r
+
+          \        duration_ms = (time.time() - start_time) * 1000\r
+
+          \        try:\r
+
+          \            client =
+          MongoClient(\"mongodb://admin:changeme@mongodb:27017/\")\r
+
+          \            db = client[\"data_pipeline\"]\r
+
+          \            db.script_metrics.insert_one({\r
+
+          \                \"script\": script_name,\r
+
+          \                \"duration_ms\": duration_ms,\r
+
+          \                \"status\": \"error\",\r
+
+          \                \"error\": str(e)[:100],\r
+
+          \                \"cpu_percent\": get_cpu_usage(),\r
+
+          \                \"memory_mb\": get_memory_mb(),\r
+
+          \                \"timestamp\": datetime.now().isoformat()\r
+
+          \            })\r
+
+          \        except:\r
+
+          \            pass\r
 
           \        return {\r
 
@@ -816,26 +1437,52 @@ value:
     - id: i
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
         content: >-
+          import time
+
+          import json
+
+          import os
+
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+
+          def get_cpu_usage():
+              try:
+                  with open('/proc/stat', 'r') as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+          def get_memory_mb():
+              try:
+                  with open('/proc/self/status', 'r') as f:
+                      for line in f:
+                          if line.startswith('VmRSS:'):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
+
           def main(deduplicated_data: dict):
               """
               Validation - règles métier + schéma
               """
-              import json
+              start_time = time.time()
+              script_name = "validation"
               
               try:
                   print("=" * 60)
@@ -845,6 +1492,18 @@ value:
                   print("=" * 60)
                   
                   if not isinstance(deduplicated_data, dict):
+                      duration_ms = (time.time() - start_time) * 1000
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": "deduplicated_data is not a dict",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
                       return {
                           "status": "error",
                           "message": f"deduplicated_data is not a dict: {type(deduplicated_data)}",
@@ -854,19 +1513,16 @@ value:
                   errors = []
                   warnings = []
                   
-                  # Règle 1 : Champ obligatoire "user_id"
                   if "user_id" not in deduplicated_data:
                       errors.append("Missing required field: user_id")
                   else:
                       print(f"  ✅ user_id présent: {deduplicated_data['user_id']}")
                   
-                  # Règle 2 : Champ obligatoire "email_address"
                   if "email_address" not in deduplicated_data:
                       errors.append("Missing required field: email_address")
                   else:
                       print(f"  ✅ email_address présent: {deduplicated_data['email_address']}")
                   
-                  # Règle 3 : Montant positif
                   if "amount" in deduplicated_data:
                       if deduplicated_data["amount"] < 0:
                           errors.append(f"Amount must be positive: {deduplicated_data['amount']}")
@@ -875,7 +1531,6 @@ value:
                       else:
                           print(f"  ✅ amount valide: {deduplicated_data['amount']}")
                   
-                  # Règle 4 : Format email
                   if "email_address" in deduplicated_data:
                       email = deduplicated_data["email_address"]
                       if "@" not in email or "." not in email:
@@ -883,7 +1538,6 @@ value:
                       else:
                           print(f"  ✅ email valide: {email}")
                   
-                  # Règle 5 : Code pays valide
                   if "country_code" in deduplicated_data:
                       valid_countries = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
                       if deduplicated_data["country_code"] not in valid_countries:
@@ -904,16 +1558,46 @@ value:
                       print(f"  - Détails avertissements: {json.dumps(warnings, indent=2)}")
                   print("=" * 60)
                   
+                  duration_ms = (time.time() - start_time) * 1000
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+                  db.script_metrics.insert_one({
+                      "script": script_name,
+                      "duration_ms": duration_ms,
+                      "status": "success",
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "timestamp": datetime.now().isoformat()
+                  })
+                  
                   return {
                       "status": "valid" if is_valid else "rejected",
                       "validated_data": deduplicated_data if is_valid else None,
                       "errors": errors,
                       "warnings": warnings,
                       "is_valid": is_valid,
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
                       "step": "validation"
                   }
                   
               except Exception as e:
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": str(e)[:100],
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
+                  except:
+                      pass
                   return {
                       "status": "error",
                       "message": str(e),
@@ -932,69 +1616,144 @@ value:
           - id: n
             value:
               lock: |-
-                # workspace-dependencies-mode: manual
-                # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
                 # py: 3.12
                 dnspython==2.8.0
-                et-xmlfile==2.0.0
-                numpy==1.26.4
-                openpyxl==3.1.2
-                pandas==2.2.0
-                pymongo==4.6.1
-                python-dateutil==2.8.2
-                pytz==2026.2
-                six==1.17.0
-                tzdata==2026.2
+                pymongo==4.17.0
               type: rawscript
-              content: >-
+              content: >
+                import time
+
+                import json
+
+                import os
+
+                from datetime import datetime
+
+                from pymongo import MongoClient
+
+
+
+                def get_cpu_usage():
+                    try:
+                        with open("/proc/stat", "r") as f:
+                            line = f.readline()
+                            parts = line.split()
+                            user = int(parts[1])
+                            nice = int(parts[2])
+                            system = int(parts[3])
+                            idle = int(parts[4])
+                            total = user + nice + system + idle
+                            return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+                    except:
+                        return 0
+
+
+                def get_memory_mb():
+                    try:
+                        with open("/proc/self/status", "r") as f:
+                            for line in f:
+                                if line.startswith("VmRSS:"):
+                                    kb = int(line.split()[1])
+                                    return round(kb / 1024, 2)
+                    except:
+                        return 0
+
+
                 def main(validated_data: dict):
                     """
                     Enrichissement - métadonnées, source, horodatage
                     """
-                    import json
-                    from datetime import datetime
-                    
+                    start_time = time.time()
+                    script_name = "enrichment"
+
                     try:
                         print("=" * 60)
                         print("📥 Données reçues dans enrichment:")
                         print(f"  - Type: {type(validated_data)}")
-                        print(f"  - Clés: {list(validated_data.keys()) if isinstance(validated_data, dict) else 'Not a dict'}")
+                        print(
+                            f"  - Clés: {list(validated_data.keys()) if isinstance(validated_data, dict) else 'Not a dict'}"
+                        )
                         print("=" * 60)
-                        
+
                         if not isinstance(validated_data, dict):
+                            duration_ms = (time.time() - start_time) * 1000
+                            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                            db = client["data_pipeline"]
+                            db.script_metrics.insert_one(
+                                {
+                                    "script": script_name,
+                                    "duration_ms": duration_ms,
+                                    "status": "error",
+                                    "error": "validated_data is not a dict",
+                                    "cpu_percent": get_cpu_usage(),
+                                    "memory_mb": get_memory_mb(),
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
                             return {
                                 "status": "error",
                                 "message": f"validated_data is not a dict: {type(validated_data)}",
-                                "step": "enrichment"
+                                "step": "enrichment",
                             }
-                        
-                        # Enrichissement des données
+
                         enriched = validated_data.copy()
-                        enriched.update({
-                            "enriched_at": datetime.now().isoformat(),
-                            "pipeline_version": "1.0.0",
-                            "source_system": "windmill_pipeline",
-                            "processing_timestamp": datetime.now().timestamp()
-                        })
-                        
+                        enriched.update(
+                            {
+                                "enriched_at": datetime.now().isoformat(),
+                                "pipeline_version": "1.0.0",
+                                "source_system": "windmill_pipeline",
+                                "processing_timestamp": datetime.now().timestamp(),
+                            }
+                        )
+
                         print(f"📊 Données enrichies avec:")
                         print(f"  - enriched_at: {enriched['enriched_at']}")
                         print(f"  - pipeline_version: {enriched['pipeline_version']}")
                         print(f"  - source_system: {enriched['source_system']}")
                         print("=" * 60)
-                        
+
+                        duration_ms = (time.time() - start_time) * 1000
+                        client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                        db = client["data_pipeline"]
+                        db.script_metrics.insert_one(
+                            {
+                                "script": script_name,
+                                "duration_ms": duration_ms,
+                                "status": "success",
+                                "cpu_percent": get_cpu_usage(),
+                                "memory_mb": get_memory_mb(),
+                                "timestamp": datetime.now().isoformat(),
+                            }
+                        )
+
                         return {
                             "status": "success",
                             "enriched_data": enriched,
-                            "step": "enrichment"
+                            "duration_ms": round(duration_ms, 2),
+                            "cpu_percent": get_cpu_usage(),
+                            "memory_mb": get_memory_mb(),
+                            "step": "enrichment",
                         }
-                        
+
                     except Exception as e:
-                        return {
-                            "status": "error",
-                            "message": str(e),
-                            "step": "enrichment"
-                        }
+                        duration_ms = (time.time() - start_time) * 1000
+                        try:
+                            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                            db = client["data_pipeline"]
+                            db.script_metrics.insert_one(
+                                {
+                                    "script": script_name,
+                                    "duration_ms": duration_ms,
+                                    "status": "error",
+                                    "error": str(e)[:100],
+                                    "cpu_percent": get_cpu_usage(),
+                                    "memory_mb": get_memory_mb(),
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
+                        except:
+                            pass
+                        return {"status": "error", "message": str(e), "step": "enrichment"}
               language: python3
               input_transforms:
                 validated_data:
@@ -1004,27 +1763,47 @@ value:
           - id: l
             value:
               lock: |-
-                # workspace-dependencies-mode: manual
-                # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
                 # py: 3.12
                 dnspython==2.8.0
-                et-xmlfile==2.0.0
-                numpy==1.26.4
-                openpyxl==3.1.2
-                pandas==2.2.0
-                pymongo==4.6.1
-                python-dateutil==2.8.2
-                pytz==2026.2
-                six==1.17.0
-                tzdata==2026.2
+                pymongo==4.17.0
               type: rawscript
               content: >-
+                import time
+
+                import json
+
+                import os
+
                 from typing import Literal, Dict, Any
 
                 from datetime import datetime
 
-                import json
+                from pymongo import MongoClient
 
+
+                def get_cpu_usage():
+                    try:
+                        with open('/proc/stat', 'r') as f:
+                            line = f.readline()
+                            parts = line.split()
+                            user = int(parts[1])
+                            nice = int(parts[2])
+                            system = int(parts[3])
+                            idle = int(parts[4])
+                            total = user + nice + system + idle
+                            return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+                    except:
+                        return 0
+
+                def get_memory_mb():
+                    try:
+                        with open('/proc/self/status', 'r') as f:
+                            for line in f:
+                                if line.startswith('VmRSS:'):
+                                    kb = int(line.split()[1])
+                                    return round(kb / 1024, 2)
+                    except:
+                        return 0
 
                 def main(
                     data: Dict[str, Any],
@@ -1033,9 +1812,10 @@ value:
                     """
                     Écriture dans MongoDB
                     """
+                    start_time = time.time()
+                    script_name = "mongodb_writer"
+                    
                     try:
-                        from pymongo import MongoClient
-                        
                         print("=" * 60)
                         print("📥 Données reçues dans mongodb_writer:")
                         print(f"  - collection: {collection}")
@@ -1043,47 +1823,52 @@ value:
                         print(f"  - Clés de data: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                         print("=" * 60)
                         
-                        # Connexion à MongoDB
                         client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                         db = client["data_pipeline"]
                         coll = db[collection]
                         
-                        # Ajout d'horodatage
                         document = data.copy() if isinstance(data, dict) else {"data": data}
                         document["written_at"] = datetime.now().isoformat()
                         document["_collection"] = collection
                         
-                        # Si dedup_key est null ou n'existe pas, générer une clé unique
                         if "dedup_key" not in document or not document["dedup_key"]:
                             import hashlib
-                            import json
-                            # Générer une clé unique basée sur les données + timestamp
                             data_string = json.dumps(document, sort_keys=True, default=str)
                             unique_string = f"{data_string}_{datetime.now().isoformat()}"
                             document["dedup_key"] = hashlib.md5(unique_string.encode()).hexdigest()
                             print(f"🔑 Nouvelle dedup_key générée: {document['dedup_key']}")
                         
-                        # Vérifier si un document avec ce dedup_key existe déjà
                         existing = coll.find_one({"dedup_key": document["dedup_key"]})
                         if existing:
                             print(f"⚠️ Document avec dedup_key déjà existant: {document['dedup_key']}")
                             print("🔄 Mise à jour du document existant")
                             
-                            # Mettre à jour le document existant
                             result = coll.update_one(
                                 {"dedup_key": document["dedup_key"]},
                                 {"$set": document}
                             )
+                            
+                            duration_ms = (time.time() - start_time) * 1000
+                            db.script_metrics.insert_one({
+                                "script": script_name,
+                                "duration_ms": duration_ms,
+                                "status": "success",
+                                "cpu_percent": get_cpu_usage(),
+                                "memory_mb": get_memory_mb(),
+                                "timestamp": datetime.now().isoformat()
+                            })
                             
                             return {
                                 "status": "success",
                                 "inserted_id": str(existing["_id"]),
                                 "collection": collection,
                                 "updated": True,
+                                "duration_ms": round(duration_ms, 2),
+                                "cpu_percent": get_cpu_usage(),
+                                "memory_mb": get_memory_mb(),
                                 "step": "mongodb_write"
                             }
                         
-                        # Insertion normale
                         result = coll.insert_one(document)
                         
                         print(f"✅ Données insérées dans '{collection}'")
@@ -1091,16 +1876,44 @@ value:
                         print(f"  - dedup_key: {document['dedup_key']}")
                         print("=" * 60)
                         
+                        duration_ms = (time.time() - start_time) * 1000
+                        db.script_metrics.insert_one({
+                            "script": script_name,
+                            "duration_ms": duration_ms,
+                            "status": "success",
+                            "cpu_percent": get_cpu_usage(),
+                            "memory_mb": get_memory_mb(),
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        
                         return {
                             "status": "success",
                             "inserted_id": str(result.inserted_id),
                             "collection": collection,
                             "updated": False,
                             "dedup_key": document["dedup_key"],
+                            "duration_ms": round(duration_ms, 2),
+                            "cpu_percent": get_cpu_usage(),
+                            "memory_mb": get_memory_mb(),
                             "step": "mongodb_write"
                         }
                         
                     except Exception as e:
+                        duration_ms = (time.time() - start_time) * 1000
+                        try:
+                            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                            db = client["data_pipeline"]
+                            db.script_metrics.insert_one({
+                                "script": script_name,
+                                "duration_ms": duration_ms,
+                                "status": "error",
+                                "error": str(e)[:100],
+                                "cpu_percent": get_cpu_usage(),
+                                "memory_mb": get_memory_mb(),
+                                "timestamp": datetime.now().isoformat()
+                            })
+                        except:
+                            pass
                         return {
                             "status": "error",
                             "message": str(e),
@@ -1121,69 +1934,144 @@ value:
               - id: m
                 value:
                   lock: |-
-                    # workspace-dependencies-mode: manual
-                    # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
                     # py: 3.12
                     dnspython==2.8.0
-                    et-xmlfile==2.0.0
-                    numpy==1.26.4
-                    openpyxl==3.1.2
-                    pandas==2.2.0
-                    pymongo==4.6.1
-                    python-dateutil==2.8.2
-                    pytz==2026.2
-                    six==1.17.0
-                    tzdata==2026.2
+                    pymongo==4.17.0
                   type: rawscript
-                  content: >-
+                  content: >
+                    import time
+
+                    import json
+
+                    import os
+
+                    from datetime import datetime
+
+                    from pymongo import MongoClient
+
+
+
+                    def get_cpu_usage():
+                        try:
+                            with open("/proc/stat", "r") as f:
+                                line = f.readline()
+                                parts = line.split()
+                                user = int(parts[1])
+                                nice = int(parts[2])
+                                system = int(parts[3])
+                                idle = int(parts[4])
+                                total = user + nice + system + idle
+                                return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+                        except:
+                            return 0
+
+
+                    def get_memory_mb():
+                        try:
+                            with open("/proc/self/status", "r") as f:
+                                for line in f:
+                                    if line.startswith("VmRSS:"):
+                                        kb = int(line.split()[1])
+                                        return round(kb / 1024, 2)
+                        except:
+                            return 0
+
+
                     def main(validated_data: dict):
                         """
                         Enrichissement - métadonnées, source, horodatage
                         """
-                        import json
-                        from datetime import datetime
-                        
+                        start_time = time.time()
+                        script_name = "enrichment"
+
                         try:
                             print("=" * 60)
                             print("📥 Données reçues dans enrichment:")
                             print(f"  - Type: {type(validated_data)}")
-                            print(f"  - Clés: {list(validated_data.keys()) if isinstance(validated_data, dict) else 'Not a dict'}")
+                            print(
+                                f"  - Clés: {list(validated_data.keys()) if isinstance(validated_data, dict) else 'Not a dict'}"
+                            )
                             print("=" * 60)
-                            
+
                             if not isinstance(validated_data, dict):
+                                duration_ms = (time.time() - start_time) * 1000
+                                client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                                db = client["data_pipeline"]
+                                db.script_metrics.insert_one(
+                                    {
+                                        "script": script_name,
+                                        "duration_ms": duration_ms,
+                                        "status": "error",
+                                        "error": "validated_data is not a dict",
+                                        "cpu_percent": get_cpu_usage(),
+                                        "memory_mb": get_memory_mb(),
+                                        "timestamp": datetime.now().isoformat(),
+                                    }
+                                )
                                 return {
                                     "status": "error",
                                     "message": f"validated_data is not a dict: {type(validated_data)}",
-                                    "step": "enrichment"
+                                    "step": "enrichment",
                                 }
-                            
-                            # Enrichissement des données
+
                             enriched = validated_data.copy()
-                            enriched.update({
-                                "enriched_at": datetime.now().isoformat(),
-                                "pipeline_version": "1.0.0",
-                                "source_system": "windmill_pipeline",
-                                "processing_timestamp": datetime.now().timestamp()
-                            })
-                            
+                            enriched.update(
+                                {
+                                    "enriched_at": datetime.now().isoformat(),
+                                    "pipeline_version": "1.0.0",
+                                    "source_system": "windmill_pipeline",
+                                    "processing_timestamp": datetime.now().timestamp(),
+                                }
+                            )
+
                             print(f"📊 Données enrichies avec:")
                             print(f"  - enriched_at: {enriched['enriched_at']}")
                             print(f"  - pipeline_version: {enriched['pipeline_version']}")
                             print(f"  - source_system: {enriched['source_system']}")
                             print("=" * 60)
-                            
+
+                            duration_ms = (time.time() - start_time) * 1000
+                            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                            db = client["data_pipeline"]
+                            db.script_metrics.insert_one(
+                                {
+                                    "script": script_name,
+                                    "duration_ms": duration_ms,
+                                    "status": "success",
+                                    "cpu_percent": get_cpu_usage(),
+                                    "memory_mb": get_memory_mb(),
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
+
                             return {
                                 "status": "success",
                                 "enriched_data": enriched,
-                                "step": "enrichment"
+                                "duration_ms": round(duration_ms, 2),
+                                "cpu_percent": get_cpu_usage(),
+                                "memory_mb": get_memory_mb(),
+                                "step": "enrichment",
                             }
-                            
+
                         except Exception as e:
-                            return {
-                                "status": "error",
-                                "message": str(e),
-                                "step": "enrichment"
-                            }
+                            duration_ms = (time.time() - start_time) * 1000
+                            try:
+                                client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                                db = client["data_pipeline"]
+                                db.script_metrics.insert_one(
+                                    {
+                                        "script": script_name,
+                                        "duration_ms": duration_ms,
+                                        "status": "error",
+                                        "error": str(e)[:100],
+                                        "cpu_percent": get_cpu_usage(),
+                                        "memory_mb": get_memory_mb(),
+                                        "timestamp": datetime.now().isoformat(),
+                                    }
+                                )
+                            except:
+                                pass
+                            return {"status": "error", "message": str(e), "step": "enrichment"}
                   language: python3
                   input_transforms:
                     validated_data:
@@ -1193,25 +2081,70 @@ value:
               - id: k
                 value:
                   lock: |-
-                    # workspace-dependencies-mode: manual
-                    # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
                     # py: 3.12
                     dnspython==2.8.0
-                    et-xmlfile==2.0.0
-                    numpy==1.26.4
-                    openpyxl==3.1.2
-                    pandas==2.2.0
-                    pymongo==4.6.1
-                    python-dateutil==2.8.2
-                    pytz==2026.2
-                    six==1.17.0
-                    tzdata==2026.2
+                    pymongo==4.17.0
                   type: rawscript
-                  content: "from typing import Literal, Dict, Any\r
+                  content: "import time\r
+
+                    import json\r
+
+                    import os\r
+
+                    from typing import Literal, Dict, Any\r
 
                     from datetime import datetime\r
 
-                    import json\r
+                    from pymongo import MongoClient\r
+
+                    \r
+
+                    def get_cpu_usage():\r
+
+                    \    try:\r
+
+                    \        with open('/proc/stat', 'r') as f:\r
+
+                    \            line = f.readline()\r
+
+                    \            parts = line.split()\r
+
+                    \            user = int(parts[1])\r
+
+                    \            nice = int(parts[2])\r
+
+                    \            system = int(parts[3])\r
+
+                    \            idle = int(parts[4])\r
+
+                    \            total = user + nice + system + idle\r
+
+                    \            return round(((total - idle) / total) * 100, 2)
+                    if total > 0 else 0\r
+
+                    \    except:\r
+
+                    \        return 0\r
+
+                    \r
+
+                    def get_memory_mb():\r
+
+                    \    try:\r
+
+                    \        with open('/proc/self/status', 'r') as f:\r
+
+                    \            for line in f:\r
+
+                    \                if line.startswith('VmRSS:'):\r
+
+                    \                    kb = int(line.split()[1])\r
+
+                    \                    return round(kb / 1024, 2)\r
+
+                    \    except:\r
+
+                    \        return 0\r
 
                     \r
 
@@ -1230,11 +2163,13 @@ value:
 
                     \    \"\"\"\r
 
+                    \    start_time = time.time()\r
+
+                    \    script_name = \"mongodb_writer\"\r
+
+                    \    \r
+
                     \    try:\r
-
-                    \        from pymongo import MongoClient\r
-
-                    \        \r
 
                     \        print(\"=\" * 60)\r
 
@@ -1251,8 +2186,6 @@ value:
 
                     \        \r
 
-                    \        # Connexion à MongoDB\r
-
                     \        client =
                     MongoClient(\"mongodb://admin:changeme@mongodb:27017/\")\r
 
@@ -1261,8 +2194,6 @@ value:
                     \        coll = db[collection]\r
 
                     \        \r
-
-                    \        # Ajout d'horodatage\r
 
                     \        document = data.copy() if isinstance(data, dict)
                     else {\"data\": data}\r
@@ -1274,18 +2205,10 @@ value:
 
                     \        \r
 
-                    \        # Si dedup_key est null ou n'existe pas, générer
-                    une clé unique\r
-
                     \        if \"dedup_key\" not in document or not
                     document[\"dedup_key\"]:\r
 
                     \            import hashlib\r
-
-                    \            import json\r
-
-                    \            # Générer une clé unique basée sur les données
-                    + timestamp\r
 
                     \            data_string = json.dumps(document,
                     sort_keys=True, default=str)\r
@@ -1301,9 +2224,6 @@ value:
 
                     \        \r
 
-                    \        # Vérifier si un document avec ce dedup_key existe
-                    déjà\r
-
                     \        existing = coll.find_one({\"dedup_key\":
                     document[\"dedup_key\"]})\r
 
@@ -1317,8 +2237,6 @@ value:
 
                     \            \r
 
-                    \            # Mettre à jour le document existant\r
-
                     \            result = coll.update_one(\r
 
                     \                {\"dedup_key\": document[\"dedup_key\"]},\r
@@ -1326,6 +2244,27 @@ value:
                     \                {\"$set\": document}\r
 
                     \            )\r
+
+                    \            \r
+
+                    \            duration_ms = (time.time() - start_time) *
+                    1000\r
+
+                    \            db.script_metrics.insert_one({\r
+
+                    \                \"script\": script_name,\r
+
+                    \                \"duration_ms\": duration_ms,\r
+
+                    \                \"status\": \"success\",\r
+
+                    \                \"cpu_percent\": get_cpu_usage(),\r
+
+                    \                \"memory_mb\": get_memory_mb(),\r
+
+                    \                \"timestamp\": datetime.now().isoformat()\r
+
+                    \            })\r
 
                     \            \r
 
@@ -1339,13 +2278,17 @@ value:
 
                     \                \"updated\": True,\r
 
+                    \                \"duration_ms\": round(duration_ms, 2),\r
+
+                    \                \"cpu_percent\": get_cpu_usage(),\r
+
+                    \                \"memory_mb\": get_memory_mb(),\r
+
                     \                \"step\": \"mongodb_write\"\r
 
                     \            }\r
 
                     \        \r
-
-                    \        # Insertion normale\r
 
                     \        result = coll.insert_one(document)\r
 
@@ -1363,6 +2306,26 @@ value:
 
                     \        \r
 
+                    \        duration_ms = (time.time() - start_time) * 1000\r
+
+                    \        db.script_metrics.insert_one({\r
+
+                    \            \"script\": script_name,\r
+
+                    \            \"duration_ms\": duration_ms,\r
+
+                    \            \"status\": \"success\",\r
+
+                    \            \"cpu_percent\": get_cpu_usage(),\r
+
+                    \            \"memory_mb\": get_memory_mb(),\r
+
+                    \            \"timestamp\": datetime.now().isoformat()\r
+
+                    \        })\r
+
+                    \        \r
+
                     \        return {\r
 
                     \            \"status\": \"success\",\r
@@ -1375,6 +2338,12 @@ value:
 
                     \            \"dedup_key\": document[\"dedup_key\"],\r
 
+                    \            \"duration_ms\": round(duration_ms, 2),\r
+
+                    \            \"cpu_percent\": get_cpu_usage(),\r
+
+                    \            \"memory_mb\": get_memory_mb(),\r
+
                     \            \"step\": \"mongodb_write\"\r
 
                     \        }\r
@@ -1382,6 +2351,37 @@ value:
                     \        \r
 
                     \    except Exception as e:\r
+
+                    \        duration_ms = (time.time() - start_time) * 1000\r
+
+                    \        try:\r
+
+                    \            client =
+                    MongoClient(\"mongodb://admin:changeme@mongodb:27017/\")\r
+
+                    \            db = client[\"data_pipeline\"]\r
+
+                    \            db.script_metrics.insert_one({\r
+
+                    \                \"script\": script_name,\r
+
+                    \                \"duration_ms\": duration_ms,\r
+
+                    \                \"status\": \"error\",\r
+
+                    \                \"error\": str(e)[:100],\r
+
+                    \                \"cpu_percent\": get_cpu_usage(),\r
+
+                    \                \"memory_mb\": get_memory_mb(),\r
+
+                    \                \"timestamp\": datetime.now().isoformat()\r
+
+                    \            })\r
+
+                    \        except:\r
+
+                    \            pass\r
 
                     \        return {\r
 
@@ -1408,26 +2408,16 @@ value:
     - id: o
       value:
         lock: |-
-          # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:8cee64a7ecac544a7626e7ef6efeb8e09077ce2048a8f0dc72914cfb37eb0916
           # py: 3.12
           dnspython==2.8.0
-          et-xmlfile==2.0.0
-          numpy==1.26.4
-          openpyxl==3.1.2
-          pandas==2.2.0
-          pymongo==4.6.1
-          python-dateutil==2.8.2
-          pytz==2026.2
-          six==1.17.0
-          tzdata==2026.2
+          pymongo==4.17.0
         type: rawscript
         content: >-
           """
 
           Envoi des métriques du pipeline à l'OTEL Collector
 
-          À ajouter comme dernière étape du Flow
+          Métriques : Comptage, Latence, Erreurs, CPU, Mémoire
 
           """
 
@@ -1444,13 +2434,74 @@ value:
           from pymongo import MongoClient
 
 
+          OTEL_COLLECTOR_URL = "http://otel_collector:4318/v1/metrics"
+
+
+          def send_metric(name, value, unit="1", description="",
+          attributes=None):
+              """Envoie une métrique à l'OTEL Collector"""
+              if attributes is None:
+                  attributes = {}
+              
+              payload = {
+                  "resourceMetrics": [{
+                      "resource": {
+                          "attributes": [
+                              {"key": "service.name", "value": {"stringValue": "windmill-pipeline"}},
+                              {"key": "service.version", "value": {"stringValue": "1.0.0"}}
+                          ]
+                      },
+                      "scopeMetrics": [{
+                          "scope": {"name": "pipeline.metrics", "version": "1.0.0"},
+                          "metrics": [{
+                              "name": name,
+                              "description": description,
+                              "unit": unit,
+                              "gauge": {
+                                  "dataPoints": [{
+                                      "attributes": [
+                                          {"key": k, "value": {"stringValue": str(v)}} 
+                                          for k, v in attributes.items()
+                                      ],
+                                      "timeUnixNano": str(int(time.time() * 1e9)),
+                                      "asDouble": float(value)
+                                  }]
+                              }
+                          }]
+                      }]
+                  }]
+              }
+              
+              try:
+                  data = json.dumps(payload).encode('utf-8')
+                  req = urllib.request.Request(
+                      OTEL_COLLECTOR_URL,
+                      data=data,
+                      headers={'Content-Type': 'application/json'},
+                      method='POST'
+                  )
+                  with urllib.request.urlopen(req, timeout=5) as response:
+                      if response.status == 200:
+                          print(f"✅ Métrique envoyée: {name}={value}")
+                          return True
+                      else:
+                          print(f"⚠️ Erreur envoi {name}: {response.status}")
+                          return False
+              except Exception as e:
+                  print(f"⚠️ Erreur envoi métrique {name}: {e}")
+                  return False
+
+
           def main():
-              OTEL_COLLECTOR_URL = "http://otel_collector:4318/v1/metrics"
+              """Met à jour toutes les métriques du pipeline"""
               
               try:
                   client = MongoClient("mongodb://admin:changeme@mongodb:27017/", serverSelectionTimeoutMS=5000)
                   db = client["data_pipeline"]
                   
+                  # ============================================
+                  # 1. MÉTRIQUES DE COMPTAGE
+                  # ============================================
                   raw = db.raw_data.count_documents({})
                   norm = db.normalized_data.count_documents({})
                   rej = db.rejected_data.count_documents({})
@@ -1461,102 +2512,170 @@ value:
                       {"$group": {"_id": "$source_type", "count": {"$sum": 1}}}
                   ]))
                   
-                  print(f"📊 Métriques: raw={raw}, normalized={norm}, rejected={rej}")
+                  print(f"📊 Métriques de comptage: raw={raw}, normalized={norm}, rejected={rej}")
                   
-                  # Envoyer les métriques (simplifié)
-                  metrics = [
-                      ("pipeline.raw.data.total", raw, {"type": "raw"}),
-                      ("pipeline.normalized.data.total", norm, {"type": "normalized"}),
-                      ("pipeline.rejected.data.total", rej, {"type": "rejected"}),
-                      ("pipeline.raw.pending.total", pending, {"status": "pending"}),
-                      ("pipeline.raw.processing.total", processing, {"status": "processing"}),
-                  ]
-                  
-                  for name, value, attrs in metrics:
-                      payload = {
-                          "resourceMetrics": [{
-                              "resource": {
-                                  "attributes": [
-                                      {"key": "service.name", "value": {"stringValue": "windmill-pipeline"}},
-                                      {"key": "service.version", "value": {"stringValue": "1.0.0"}}
-                                  ]
-                              },
-                              "scopeMetrics": [{
-                                  "scope": {"name": "pipeline.metrics", "version": "1.0.0"},
-                                  "metrics": [{
-                                      "name": name,
-                                      "description": "",
-                                      "unit": "1",
-                                      "gauge": {
-                                          "dataPoints": [{
-                                              "attributes": [
-                                                  {"key": k, "value": {"stringValue": str(v)}} 
-                                                  for k, v in attrs.items()
-                                              ],
-                                              "timeUnixNano": str(int(time.time() * 1e9)),
-                                              "asDouble": float(value)
-                                          }]
-                                      }
-                                  }]
-                              }]
-                          }]
-                      }
-                      
-                      data = json.dumps(payload).encode('utf-8')
-                      req = urllib.request.Request(
-                          OTEL_COLLECTOR_URL,
-                          data=data,
-                          headers={'Content-Type': 'application/json'},
-                          method='POST'
-                      )
-                      with urllib.request.urlopen(req, timeout=5) as response:
-                          if response.status == 200:
-                              print(f"✅ {name}={value}")
+                  send_metric("pipeline.raw.data.total", raw, "1", "Total raw data", {"type": "raw"})
+                  send_metric("pipeline.normalized.data.total", norm, "1", "Total normalized data", {"type": "normalized"})
+                  send_metric("pipeline.rejected.data.total", rej, "1", "Total rejected data", {"type": "rejected"})
+                  send_metric("pipeline.raw.pending.total", pending, "1", "Pending data", {"status": "pending"})
+                  send_metric("pipeline.raw.processing.total", processing, "1", "Processing data", {"status": "processing"})
                   
                   for source in sources:
                       source_type = source['_id'] or 'unknown'
-                      payload = {
-                          "resourceMetrics": [{
-                              "resource": {
-                                  "attributes": [
-                                      {"key": "service.name", "value": {"stringValue": "windmill-pipeline"}},
-                                      {"key": "service.version", "value": {"stringValue": "1.0.0"}}
-                                  ]
-                              },
-                              "scopeMetrics": [{
-                                  "scope": {"name": "pipeline.metrics", "version": "1.0.0"},
-                                  "metrics": [{
-                                      "name": "pipeline.raw.by.source",
-                                      "description": "",
-                                      "unit": "1",
-                                      "gauge": {
-                                          "dataPoints": [{
-                                              "attributes": [
-                                                  {"key": "source_type", "value": {"stringValue": source_type}}
-                                              ],
-                                              "timeUnixNano": str(int(time.time() * 1e9)),
-                                              "asDouble": float(source["count"])
-                                          }]
-                                      }
-                                  }]
-                              }]
-                          }]
-                      }
-                      
-                      data = json.dumps(payload).encode('utf-8')
-                      req = urllib.request.Request(
-                          OTEL_COLLECTOR_URL,
-                          data=data,
-                          headers={'Content-Type': 'application/json'},
-                          method='POST'
-                      )
-                      with urllib.request.urlopen(req, timeout=5) as response:
-                          if response.status == 200:
-                              print(f"✅ pipeline.raw.by.source{{source_type={source_type}}}={source['count']}")
+                      send_metric("pipeline.raw.by.source", source["count"], "1", "Data by source", {"source_type": source_type})
                   
+                  # ============================================
+                  # 2. MÉTRIQUES DE LATENCE PAR TÂCHE
+                  # ============================================
+                  print("\n⏱️ Métriques de latence:")
+                  scripts = ["ingestion", "profiling", "parsing", "mapping", "cleaning", 
+                             "typing", "standardization", "dedup", "validation", "enrichment", "mongodb_writer"]
+                  
+                  for script in scripts:
+                      last = db.script_metrics.find_one(
+                          {"script": script},
+                          sort=[("timestamp", -1)]
+                      )
+                      if last:
+                          duration = last.get("duration_ms", 0)
+                          status = last.get("status", "unknown")
+                          send_metric(
+                              "pipeline.latency.last",
+                              duration,
+                              "ms",
+                              f"Last execution duration for {script}",
+                              {"script": script, "status": status}
+                          )
+                      
+                      # Durée moyenne
+                      avg_docs = list(db.script_metrics.find(
+                          {"script": script}
+                      ).sort("timestamp", -1).limit(10))
+                      
+                      if avg_docs:
+                          avg_duration = sum(d.get("duration_ms", 0) for d in avg_docs) / len(avg_docs)
+                          send_metric(
+                              "pipeline.latency.avg",
+                              round(avg_duration, 2),
+                              "ms",
+                              f"Average execution duration for {script}",
+                              {"script": script}
+                          )
+                  
+                  # ============================================
+                  # 3. MÉTRIQUES D'ERREURS PAR TÂCHE
+                  # ============================================
+                  print("\n❌ Métriques d'erreurs:")
+                  
+                  for script in scripts:
+                      errors = db.script_metrics.count_documents({
+                          "script": script,
+                          "status": "error"
+                      })
+                      successes = db.script_metrics.count_documents({
+                          "script": script,
+                          "status": "success"
+                      })
+                      
+                      send_metric(
+                          "pipeline.errors.total",
+                          errors,
+                          "1",
+                          f"Total errors for {script}",
+                          {"script": script}
+                      )
+                      send_metric(
+                          "pipeline.success.total",
+                          successes,
+                          "1",
+                          f"Total successes for {script}",
+                          {"script": script}
+                      )
+                      
+                      total = errors + successes
+                      if total > 0:
+                          error_rate = (errors / total) * 100
+                          send_metric(
+                              "pipeline.error.rate",
+                              round(error_rate, 2),
+                              "%",
+                              f"Error rate for {script}",
+                              {"script": script}
+                          )
+                  
+                  # ============================================
+                  # 4. MÉTRIQUES CPU PAR TÂCHE
+                  # ============================================
+                  print("\n💻 Métriques CPU par tâche:")
+                  
+                  for script in scripts:
+                      last_cpu = db.script_metrics.find_one(
+                          {"script": script},
+                          sort=[("timestamp", -1)]
+                      )
+                      if last_cpu and "cpu_percent" in last_cpu:
+                          send_metric(
+                              "pipeline.cpu.percent",
+                              last_cpu["cpu_percent"],
+                              "%",
+                              f"CPU usage for {script}",
+                              {"script": script}
+                          )
+                      
+                      # CPU moyenne
+                      avg_cpu_docs = list(db.script_metrics.find(
+                          {"script": script, "cpu_percent": {"$exists": True}}
+                      ).sort("timestamp", -1).limit(10))
+                      
+                      if avg_cpu_docs:
+                          avg_cpu = sum(d.get("cpu_percent", 0) for d in avg_cpu_docs) / len(avg_cpu_docs)
+                          send_metric(
+                              "pipeline.cpu.avg",
+                              round(avg_cpu, 2),
+                              "%",
+                              f"Average CPU usage for {script}",
+                              {"script": script}
+                          )
+                  
+                  # ============================================
+                  # 5. MÉTRIQUES MÉMOIRE PAR TÂCHE
+                  # ============================================
+                  print("\n💾 Métriques Mémoire par tâche:")
+                  
+                  for script in scripts:
+                      last_memory = db.script_metrics.find_one(
+                          {"script": script},
+                          sort=[("timestamp", -1)]
+                      )
+                      if last_memory and "memory_mb" in last_memory:
+                          send_metric(
+                              "pipeline.memory.mb",
+                              last_memory["memory_mb"],
+                              "MB",
+                              f"Memory usage for {script}",
+                              {"script": script}
+                          )
+                      
+                      # Mémoire moyenne
+                      avg_memory_docs = list(db.script_metrics.find(
+                          {"script": script, "memory_mb": {"$exists": True}}
+                      ).sort("timestamp", -1).limit(10))
+                      
+                      if avg_memory_docs:
+                          avg_memory = sum(d.get("memory_mb", 0) for d in avg_memory_docs) / len(avg_memory_docs)
+                          send_metric(
+                              "pipeline.memory.avg",
+                              round(avg_memory, 2),
+                              "MB",
+                              f"Average memory usage for {script}",
+                              {"script": script}
+                          )
+                  
+                  print("\n✅ Toutes les métriques envoyées avec succès !")
                   return {"status": "success", "step": "send_metrics"}
                   
               except Exception as e:
+                  print(f"❌ Erreur: {e}")
                   return {"status": "error", "message": str(e), "step": "send_metrics"}
         language: python3
         input_transforms: {}

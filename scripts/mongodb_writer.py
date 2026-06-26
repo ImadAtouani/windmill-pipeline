@@ -1,6 +1,33 @@
+import time
+import json
+import os
 from typing import Literal, Dict, Any
 from datetime import datetime
-import json
+from pymongo import MongoClient
+
+def get_cpu_usage():
+    try:
+        with open('/proc/stat', 'r') as f:
+            line = f.readline()
+            parts = line.split()
+            user = int(parts[1])
+            nice = int(parts[2])
+            system = int(parts[3])
+            idle = int(parts[4])
+            total = user + nice + system + idle
+            return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+    except:
+        return 0
+
+def get_memory_mb():
+    try:
+        with open('/proc/self/status', 'r') as f:
+            for line in f:
+                if line.startswith('VmRSS:'):
+                    kb = int(line.split()[1])
+                    return round(kb / 1024, 2)
+    except:
+        return 0
 
 def main(
     data: Dict[str, Any],
@@ -9,9 +36,10 @@ def main(
     """
     Écriture dans MongoDB
     """
+    start_time = time.time()
+    script_name = "mongodb_writer"
+    
     try:
-        from pymongo import MongoClient
-        
         print("=" * 60)
         print("📥 Données reçues dans mongodb_writer:")
         print(f"  - collection: {collection}")
@@ -19,47 +47,52 @@ def main(
         print(f"  - Clés de data: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
         print("=" * 60)
         
-        # Connexion à MongoDB
         client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
         db = client["data_pipeline"]
         coll = db[collection]
         
-        # Ajout d'horodatage
         document = data.copy() if isinstance(data, dict) else {"data": data}
         document["written_at"] = datetime.now().isoformat()
         document["_collection"] = collection
         
-        # Si dedup_key est null ou n'existe pas, générer une clé unique
         if "dedup_key" not in document or not document["dedup_key"]:
             import hashlib
-            import json
-            # Générer une clé unique basée sur les données + timestamp
             data_string = json.dumps(document, sort_keys=True, default=str)
             unique_string = f"{data_string}_{datetime.now().isoformat()}"
             document["dedup_key"] = hashlib.md5(unique_string.encode()).hexdigest()
             print(f"🔑 Nouvelle dedup_key générée: {document['dedup_key']}")
         
-        # Vérifier si un document avec ce dedup_key existe déjà
         existing = coll.find_one({"dedup_key": document["dedup_key"]})
         if existing:
             print(f"⚠️ Document avec dedup_key déjà existant: {document['dedup_key']}")
             print("🔄 Mise à jour du document existant")
             
-            # Mettre à jour le document existant
             result = coll.update_one(
                 {"dedup_key": document["dedup_key"]},
                 {"$set": document}
             )
+            
+            duration_ms = (time.time() - start_time) * 1000
+            db.script_metrics.insert_one({
+                "script": script_name,
+                "duration_ms": duration_ms,
+                "status": "success",
+                "cpu_percent": get_cpu_usage(),
+                "memory_mb": get_memory_mb(),
+                "timestamp": datetime.now().isoformat()
+            })
             
             return {
                 "status": "success",
                 "inserted_id": str(existing["_id"]),
                 "collection": collection,
                 "updated": True,
+                "duration_ms": round(duration_ms, 2),
+                "cpu_percent": get_cpu_usage(),
+                "memory_mb": get_memory_mb(),
                 "step": "mongodb_write"
             }
         
-        # Insertion normale
         result = coll.insert_one(document)
         
         print(f"✅ Données insérées dans '{collection}'")
@@ -67,16 +100,44 @@ def main(
         print(f"  - dedup_key: {document['dedup_key']}")
         print("=" * 60)
         
+        duration_ms = (time.time() - start_time) * 1000
+        db.script_metrics.insert_one({
+            "script": script_name,
+            "duration_ms": duration_ms,
+            "status": "success",
+            "cpu_percent": get_cpu_usage(),
+            "memory_mb": get_memory_mb(),
+            "timestamp": datetime.now().isoformat()
+        })
+        
         return {
             "status": "success",
             "inserted_id": str(result.inserted_id),
             "collection": collection,
             "updated": False,
             "dedup_key": document["dedup_key"],
+            "duration_ms": round(duration_ms, 2),
+            "cpu_percent": get_cpu_usage(),
+            "memory_mb": get_memory_mb(),
             "step": "mongodb_write"
         }
         
     except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        try:
+            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+            db = client["data_pipeline"]
+            db.script_metrics.insert_one({
+                "script": script_name,
+                "duration_ms": duration_ms,
+                "status": "error",
+                "error": str(e)[:100],
+                "cpu_percent": get_cpu_usage(),
+                "memory_mb": get_memory_mb(),
+                "timestamp": datetime.now().isoformat()
+            })
+        except:
+            pass
         return {
             "status": "error",
             "message": str(e),

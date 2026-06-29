@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<employee>
+    <id>E001</id>
+    <name>Marie Dupont</name>
+    <position>Data Engineer</position>
+    <salary>45000.00</salary>
+    <department>IT</department>
+    <hire_date>2023-09-01</hire_date>
+    <country>FR</country>
+    <email>marie.dupont@company.com</email>
+</employee>

@@ -22,7 +22,7 @@
       "id": 2,
       "title": "Données brutes",
       "type": "stat",
-      "gridPos": {"h": 3, "w": 4, "x": 0, "y": 1},
+      "gridPos": {"h": 3, "w": 8, "x": 0, "y": 1},
       "targets": [{"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"}],
       "fieldConfig": {
         "defaults": {
@@ -37,7 +37,7 @@
       "id": 3,
       "title": "Données normalisées",
       "type": "stat",
-      "gridPos": {"h": 3, "w": 4, "x": 4, "y": 1},
+      "gridPos": {"h": 3, "w": 8, "x": 8, "y": 1},
       "targets": [{"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "A", "legendFormat": "Normalisées"}],
       "fieldConfig": {
         "defaults": {
@@ -52,42 +52,12 @@
       "id": 4,
       "title": "Données rejetées",
       "type": "stat",
-      "gridPos": {"h": 3, "w": 4, "x": 8, "y": 1},
+      "gridPos": {"h": 3, "w": 8, "x": 16, "y": 1},
       "targets": [{"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "A", "legendFormat": "Rejetées"}],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}]},
-          "unit": "short"
-        }
-      },
-      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
-    },
-    {
-      "id": 5,
-      "title": "En attente",
-      "type": "stat",
-      "gridPos": {"h": 3, "w": 4, "x": 12, "y": 1},
-      "targets": [{"expr": "windmill_pipeline_raw_pending_total_ratio", "refId": "A", "legendFormat": "En attente"}],
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}]},
-          "unit": "short"
-        }
-      },
-      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
-    },
-    {
-      "id": 6,
-      "title": "En traitement",
-      "type": "stat",
-      "gridPos": {"h": 3, "w": 4, "x": 16, "y": 1},
-      "targets": [{"expr": "windmill_pipeline_raw_processing_total_ratio", "refId": "A", "legendFormat": "En traitement"}],
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]},
           "unit": "short"
         }
       },
@@ -242,9 +212,7 @@
       "targets": [
         {"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"},
         {"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "B", "legendFormat": "Normalisées"},
-        {"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "C", "legendFormat": "Rejetées"},
-        {"expr": "windmill_pipeline_raw_pending_total_ratio", "refId": "D", "legendFormat": "En attente"},
-        {"expr": "windmill_pipeline_raw_processing_total_ratio", "refId": "E", "legendFormat": "En traitement"}
+        {"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "C", "legendFormat": "Rejetées"}
       ],
       "fieldConfig": {
         "defaults": {"custom": {"align": "auto"}, "unit": "short"}

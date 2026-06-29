@@ -7,7 +7,7 @@ Ce projet implémente un pipeline complet de normalisation de données orchestr�
 - 📊 Stockage dans MongoDB (raw / normalized / rejected)
 - 📈 Observabilité complète avec OpenTelemetry + Prometheus + Tempo + Grafana
 
-Le pipeline traite des données provenant de multiples sources (CSV, Excel, JSON, HTML, API, Parquet) et les normalise selon un modèle cible défini.
+Le pipeline traite des données provenant de multiples sources (CSV, Excel, JSON, HTML, API, Parquet, XML) et les normalise selon un modèle cible défini.
 
 ---
 
@@ -17,15 +17,15 @@ Le pipeline traite des données provenant de multiples sources (CSV, Excel, JSON
 Sources (externes)
     ↓
 [Windmill - Scripts Python] 
-    ├── ingestion.py          # Connecteurs sources
-    ├── profiling.py          # Analyse des données
+    ├── ingestion.py          # Connecteurs sources (CSV, JSON, XML, Excel, Parquet, HTML, API, GraphQL, SQL)
+    ├── profiling.py          # Analyse des types, colonnes, valeurs nulles
     ├── parsing.py            # Parsing des formats
-    ├── mapping.py            # Mapping source → cible
+    ├── mapping.py            # Mapping source → modèle cible
     ├── cleaning.py           # Nettoyage des données
     ├── typing.py             # Typage des champs
     ├── standardization.py    # Standardisation
     ├── dedup.py              # Déduplication
-    ├── validation.py         # Règles métier
+    ├── validation.py         # Règles métier + schéma
     ├── enrichment.py         # Enrichissement
     ├── mongodb_writer.py     # Écriture MongoDB
     └── send_metrics.py       # Envoi des métriques à l'OTEL Collector
@@ -45,9 +45,9 @@ raw_data           normalized_data   rejected_data
 
 | # | Étape | Script | Description |
 |---|-------|--------|-------------|
-| 1 | **Ingestion** | `ingestion.py` | Connecteurs sources (API, CSV, Excel, JSON, HTML, Parquet) |
+| 1 | **Ingestion** | `ingestion.py` | Connecteurs sources (CSV, JSON, XML, Excel, Parquet, HTML, API, GraphQL, SQL) |
 | 2 | **Profilage** | `profiling.py` | Analyse des types, colonnes, valeurs nulles |
-| 3 | **Parsing** | `parsing.py` | Parse CSV, Excel, JSON, HTML, Parquet |
+| 3 | **Parsing** | `parsing.py` | Parse CSV, Excel, JSON, HTML, Parquet, XML |
 | 4 | **Mapping** | `mapping.py` | Mapping champs source → modèle cible |
 | 5 | **Nettoyage** | `cleaning.py` | Trim, encodage, formats |
 | 6 | **Typage** | `typing.py` | Cast date, nombre, booléen, enum |
@@ -73,6 +73,14 @@ windmill-pipeline/
 ├── prometheus.yml              # Configuration Prometheus
 ├── tempo.yml                   # Configuration Tempo
 │
+├── data/                       # Fichiers de données sources
+│   ├── sales_2024.csv
+│   ├── products.json
+│   ├── data.xml
+│   ├── inventory.xlsx
+│   ├── data.parquet
+│   └── page.html
+│
 ├── scripts/                    # Scripts du pipeline
 │   ├── requirements.txt
 │   ├── ingestion.py
@@ -95,8 +103,7 @@ windmill-pipeline/
 │       └── pipeline_overview.json
 │
 ├── mongo-init/                 # Initialisation MongoDB
-│   ├── init.js
-│   └── seed_test_data.js
+│   └── init.js
 │
 └── README.md
 ```
@@ -118,7 +125,7 @@ mkdir windmill-pipeline
 cd windmill-pipeline
 
 # Créer les dossiers nécessaires
-mkdir -p scripts grafana/dashboards mongo-init
+mkdir -p data scripts grafana/dashboards mongo-init
 ```
 
 ### 2. Configuration des fichiers
@@ -130,6 +137,7 @@ Copiez tous les fichiers suivants dans la structure indiquée :
 - `otel-collector-config.yml`
 - `prometheus.yml`
 - `tempo.yml`
+- Les fichiers de données dans `data/`
 - Tous les scripts Python dans `scripts/`
 - Les fichiers Grafana dans `grafana/`
 - Les fichiers MongoDB dans `mongo-init/`
@@ -245,60 +253,76 @@ curl http://localhost:3000              # Grafana
    - **True** → `mongodb_writer` avec `collection="normalized_data"`
    - **False** → `mongodb_writer` avec `collection="rejected_data"`
 
-#### Étape 3 : Exécuter le Flow
+#### Étape 3 : Input Schema du Flow
 
-1. Cliquez sur **"Run"**
-2. Entrez les paramètres :
-
-**Run 1 : CSV**
 ```json
 {
-  "source_type": "csv",
-  "source_path": "/data/sales_2024.csv",
-  "format": "csv"
+  "type": "object",
+  "properties": {
+    "source_type": {
+      "type": "string",
+      "description": "Type de source de données",
+      "enum": ["csv", "json", "xml", "excel", "parquet", "html", "api", "graphql", "sql"],
+      "default": "csv"
+    },
+    "source_path": {
+      "type": "string",
+      "description": "Chemin du fichier, URL de l'API, ou chaîne de connexion SQL",
+      "default": "/data/sales_2024.csv"
+    },
+    "method": {
+      "type": "string",
+      "description": "Méthode HTTP pour API REST",
+      "enum": ["GET", "POST", "PUT", "DELETE"],
+      "default": "GET"
+    },
+    "headers": {
+      "type": "string",
+      "description": "Headers HTTP (format JSON)",
+      "default": "{}"
+    },
+    "params": {
+      "type": "string",
+      "description": "Paramètres de requête (format JSON)",
+      "default": "{}"
+    },
+    "data": {
+      "type": "string",
+      "description": "Corps de la requête (format JSON) pour API POST/PUT",
+      "default": "{}"
+    },
+    "query": {
+      "type": "string",
+      "description": "Requête GraphQL ou SQL",
+      "default": ""
+    },
+    "variables": {
+      "type": "string",
+      "description": "Variables GraphQL (format JSON)",
+      "default": "{}"
+    }
+  },
+  "required": ["source_type", "source_path"]
 }
 ```
 
-**Run 2 : API**
-```json
-{
-  "source_type": "api",
-  "source_path": "GET /api/users",
-  "format": "json"
-}
-```
+#### Étape 4 : Exécuter le Flow avec différents inputs
 
-**Run 3 : JSON**
-```json
-{
-  "source_type": "json",
-  "source_path": "/data/products.json",
-  "format": "json"
-}
-```
+| Source | Input JSON |
+|--------|------------|
+| **CSV** | `{"source_type":"csv","source_path":"/data/sales_2024.csv"}` |
+| **JSON** | `{"source_type":"json","source_path":"/data/products.json"}` |
+| **XML** | `{"source_type":"xml","source_path":"/data/data.xml"}` |
+| **Excel** | `{"source_type":"excel","source_path":"/data/inventory.xlsx"}` |
+| **Parquet** | `{"source_type":"parquet","source_path":"/data/data.parquet"}` |
+| **HTML** | `{"source_type":"html","source_path":"/data/page.html"}` |
+| **API GET** | `{"source_type":"api","source_path":"https://jsonplaceholder.typicode.com/users/1","method":"GET"}` |
+| **API GET avec params** | `{"source_type":"api","source_path":"https://jsonplaceholder.typicode.com/posts","method":"GET","params":"{\"userId\":1}"}` |
+| **API POST** | `{"source_type":"api","source_path":"https://jsonplaceholder.typicode.com/posts","method":"POST","headers":"{\"Content-Type\":\"application/json\"}","data":"{\"title\":\"Test\",\"body\":\"Test content\",\"userId\":1}"}` |
+| **GraphQL** | `{"source_type":"graphql","source_path":"https://rickandmortyapi.com/graphql","query":"query { characters(page:1) { results { id name status species } } }"}` |
+| **SQL** | `{"source_type":"sql","source_path":"postgresql://user:password@localhost:5432/mydb","query":"SELECT * FROM users LIMIT 5"}` |
 
-**Run 4 : Excel**
-```json
-{
-  "source_type": "excel",
-  "source_path": "/data/inventory.xlsx",
-  "format": "excel"
-}
-```
-
-**Run 5 : HTML**
-```json
-{
-  "source_type": "html",
-  "source_path": "https://example.com/products",
-  "format": "html"
-}
-```
-
-3. Cliquez sur **"Run Now"**
-4. Observez l'exécution en temps réel
-
-#### Étape 4 : Vérifier les résultats
+#### Étape 5 : Vérifier les résultats
 
 ```bash
 # Connexion à MongoDB
@@ -317,7 +341,7 @@ db.normalized_data.find().pretty()
 db.rejected_data.find().pretty()
 ```
 
-#### Étape 5 : Vérifier les métriques
+#### Étape 6 : Vérifier les métriques
 
 ```bash
 # Voir les métriques du pipeline
@@ -366,35 +390,40 @@ db.raw_data.insertMany([
         status: "pending"
     },
     {
-        source_type: "api",
-        source_path: "GET /api/users",
-        ingested_at: new Date(),
-        step: "ingestion",
-        raw_payload: {
-            data: {
-                id: "002",
-                name: "Jane Smith",
-                amount: "2500.00",
-                date: "2024-01-16",
-                country: "DE",
-                email: "jane.smith@example.com"
-            }
-        },
-        status: "pending"
-    },
-    {
         source_type: "json",
         source_path: "/data/products.json",
         ingested_at: new Date(),
         step: "ingestion",
         raw_payload: {
             data: {
-                id: "003",
-                name: "Bob Johnson",
-                amount: "750.25",
-                date: "2024-01-17",
+                id: "P001",
+                name: "Laptop Pro",
+                price: 1299.99,
+                category: "Electronics",
+                stock: 45,
+                supplier: "TechCorp",
+                date: "2024-06-01",
                 country: "US",
-                email: "bob.johnson@example.com"
+                email: "contact@techcorp.com"
+            }
+        },
+        status: "pending"
+    },
+    {
+        source_type: "xml",
+        source_path: "/data/data.xml",
+        ingested_at: new Date(),
+        step: "ingestion",
+        raw_payload: {
+            data: {
+                id: "E001",
+                name: "Marie Dupont",
+                position: "Data Engineer",
+                salary: "45000.00",
+                department: "IT",
+                hire_date: "2023-09-01",
+                country: "FR",
+                email: "marie.dupont@company.com"
             }
         },
         status: "pending"
@@ -406,29 +435,30 @@ db.raw_data.insertMany([
         step: "ingestion",
         raw_payload: {
             data: {
-                id: "004",
-                name: "Alice Brown",
-                amount: "3200.00",
-                date: "2024-01-18",
-                country: "UK",
-                email: "alice.brown@example.com"
+                product_id: "INV001",
+                product_name: "Office Chair",
+                quantity: 150,
+                price: 89.99,
+                category: "Furniture",
+                supplier: "Ergonomics Inc",
+                last_restock: "2024-05-15"
             }
         },
         status: "pending"
     },
     {
         source_type: "html",
-        source_path: "https://example.com/products",
+        source_path: "/data/page.html",
         ingested_at: new Date(),
         step: "ingestion",
         raw_payload: {
             data: {
-                id: "005",
-                name: "Charlie Davis",
-                amount: "890.75",
-                date: "2024-01-19",
-                country: "CA",
-                email: "charlie.davis@example.com"
+                titles: ["Electronics Store"],
+                paragraphs: ["Welcome to our electronics store."],
+                tables: [
+                    ["Product", "Price", "Stock"],
+                    ["Laptop Pro", "$1,299.99", "45"]
+                ]
             }
         },
         status: "pending"
@@ -436,7 +466,6 @@ db.raw_data.insertMany([
 ]);
 
 print("✅ Données de test insérées: " + db.raw_data.count() + " documents");
-print("📊 En attente: " + db.raw_data.find({ status: "pending" }).count());
 '
 ```
 
@@ -451,8 +480,6 @@ print("📊 En attente: " + db.raw_data.find({ status: "pending" }).count());
 | `windmill_pipeline_raw_data_total_ratio` | Nombre total de données brutes | 1 |
 | `windmill_pipeline_normalized_data_total_ratio` | Nombre total de données normalisées | 1 |
 | `windmill_pipeline_rejected_data_total_ratio` | Nombre total de données rejetées | 1 |
-| `windmill_pipeline_raw_pending_total_ratio` | Nombre de données en attente | 1 |
-| `windmill_pipeline_raw_processing_total_ratio` | Nombre de données en traitement | 1 |
 | `windmill_pipeline_raw_by_source_ratio` | Répartition des données par source | 1 |
 | `windmill_pipeline_latency_last_milliseconds` | Dernière durée d'exécution par script | ms |
 | `windmill_pipeline_latency_avg_milliseconds` | Durée moyenne d'exécution par script | ms |
@@ -474,7 +501,7 @@ print("📊 En attente: " + db.raw_data.find({ status: "pending" }).count());
 3. Sélectionnez **"Pipeline de Normalisation - Vue Globale"**
 
 Le dashboard affiche :
-- **Statistiques** : Données brutes, normalisées, rejetées, en attente, en traitement
+- **Statistiques** : Données brutes, normalisées, rejetées
 - **Évolution des données** : Graphique temporel des 3 métriques principales
 - **Répartition par source** : Diagramme circulaire des sources de données
 - **Latence par tâche** : Dernière exécution et moyenne
@@ -565,22 +592,17 @@ curl -s http://localhost:3200/ready
 
 ### Ajouter une nouvelle source de données
 
-1. Modifier `scripts/ingestion.py` :
-   ```python
-   def main(source_type: str, source_path: str):
-       if source_type == "parquet":
-           import pandas as pd
-           df = pd.read_parquet(source_path)
-           # ...
-   ```
+Modifier `scripts/ingestion.py` :
+```python
+def read_new_format_file(file_path):
+    """Lit un nouveau format de fichier"""
+    # Implémentation
+    return data
 
-2. Mettre à jour `scripts/parsing.py` :
-   ```python
-   def main(raw_data: Dict[str, Any], format: Literal["csv", "excel", "json", "html", "parquet"] = "json"):
-       if format == "parquet":
-           # Ajouter le parsing Parquet
-           # ...
-   ```
+# Ajouter dans read_data_from_source()
+elif source_type == 'new_format':
+    return read_new_format_file(actual_path)
+```
 
 ### Modifier les règles de validation
 
@@ -654,19 +676,28 @@ docker-compose logs mongodb
 curl -s http://localhost:8890/metrics | grep "pipeline"
 ```
 
+### Fichier non trouvé dans /data/
+
+```bash
+# Copier les fichiers dans le conteneur
+docker cp data/. windmill-windmill_server-1:/data/
+
+# Vérifier
+docker exec -it windmill-windmill_server-1 ls -la /data/
+```
+
 ### Nettoyer les données et recommencer
 
 ```bash
-# Supprimer les volumes
-docker-compose down -v
-
-# Supprimer les volumes manuellement
-docker volume rm windmill_db_data windmill_mongodb_data windmill_prometheus_data windmill_tempo_data windmill_grafana_data 2>/dev/null || true
-
-# Relancer
-docker-compose up -d
-
-# Réinsérer les données de test (voir section "Méthode 2")
+# Nettoyer MongoDB
+docker exec -it windmill-mongodb-1 mongosh -u admin -p changeme --eval '
+use data_pipeline;
+db.raw_data.deleteMany({});
+db.normalized_data.deleteMany({});
+db.rejected_data.deleteMany({});
+db.script_metrics.deleteMany({});
+print("✅ Nettoyé");
+'
 ```
 
 ### Problèmes de ports
@@ -691,9 +722,6 @@ docker-compose up -d
 
 # Arrêter tous les services
 docker-compose down
-
-# Arrêter et supprimer les volumes (⚠️ perte de données)
-docker-compose down -v
 
 # Redémarrer un service
 docker-compose restart windmill_server
@@ -773,6 +801,11 @@ pymongo==4.6.1
 python-dateutil==2.8.2
 pandas==2.2.0
 openpyxl==3.1.2
+requests==2.31.0
+beautifulsoup4==4.12.2
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+pyarrow==14.0.1
 ```
 
 ---
@@ -814,12 +847,13 @@ MIT
 
 | Version | Date | Description |
 |---------|------|-------------|
-| v1.0.0 | 2026-06-26 | Version finale |
+| v1.0.0 | 2026-06-29 | Version finale |
 | | | - Pipeline 12 étapes complet |
+| | | - Support CSV, JSON, XML, Excel, Parquet, HTML, API, GraphQL, SQL |
 | | | - MongoDB multi-collections (raw/normalized/rejected) |
 | | | - Stack OTEL + Prometheus + Tempo + Grafana |
 | | | - Dashboard Grafana complet avec toutes les métriques |
-| | | - Données de test intégrées |
+| | | - Données de test intégrées dans dossier `data/` |
 | | | - Métriques de latence, CPU, Mémoire, Erreurs |
 | | | - Ports optimisés : OTEL Metrics sur 8890, Tempo sur 55680 |
 | | | - Métriques personnalisées via `send_metrics.py` |

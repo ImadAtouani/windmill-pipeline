@@ -6,23 +6,264 @@ value:
       value:
         lock: |-
           # py: 3.12
+          beautifulsoup4==4.15.0
+          bs4==0.0.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==2.5.0
+          pandas==3.0.4
           pymongo==4.17.0
+          python-dateutil==2.9.0.post0
+          requests==2.34.2
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.51
+          typing-extensions==4.15.0
+          urllib3==2.7.0
         type: rawscript
         content: >-
           import time
 
-          from pymongo import MongoClient
-
-          from datetime import datetime
+          import os
 
           import json
 
-          import os
+          import csv
+
+          import re
+
+          import requests
+
+          import pandas as pd
+
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+          from io import StringIO
+
+          from bs4 import BeautifulSoup
+
+          import sqlalchemy as sa
+
+
+          # ============================================
+
+          # FONCTIONS DE CONNEXION AUX SOURCES
+
+          # ============================================
+
+
+          def read_csv_file(file_path):
+              """Lit un fichier CSV"""
+              data = []
+              with open(file_path, 'r', encoding='utf-8') as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      data.append(row)
+              return data[0] if data else {}
+
+          def read_json_file(file_path):
+              """Lit un fichier JSON"""
+              with open(file_path, 'r', encoding='utf-8') as f:
+                  return json.load(f)
+
+          def read_xml_file(file_path):
+              """Lit un fichier XML"""
+              import xml.etree.ElementTree as ET
+              tree = ET.parse(file_path)
+              root = tree.getroot()
+              data = {}
+              for child in root:
+                  data[child.tag] = child.text
+              return data
+
+          def read_excel_file(file_path):
+              """Lit un fichier Excel"""
+              df = pd.read_excel(file_path)
+              return df.to_dict('records')[0] if not df.empty else {}
+
+          def read_parquet_file(file_path):
+              """Lit un fichier Parquet"""
+              df = pd.read_parquet(file_path)
+              return df.to_dict('records')[0] if not df.empty else {}
+
+          def read_html_file(file_path):
+              """Lit un fichier HTML (scraping)"""
+              with open(file_path, 'r', encoding='utf-8') as f:
+                  soup = BeautifulSoup(f.read(), 'html.parser')
+              
+              data = {}
+              
+              titles = soup.find_all(['h1', 'h2', 'h3'])
+              if titles:
+                  data['titles'] = [t.get_text(strip=True) for t in titles[:5]]
+              
+              paragraphs = soup.find_all('p')
+              if paragraphs:
+                  data['paragraphs'] = [p.get_text(strip=True) for p in paragraphs[:5]]
+              
+              links = soup.find_all('a')
+              if links:
+                  data['links'] = [{'text': l.get_text(strip=True), 'href': l.get('href')} for l in links[:10]]
+              
+              tables = soup.find_all('table')
+              if tables:
+                  table_data = []
+                  for table in tables[:2]:
+                      rows = table.find_all('tr')
+                      for row in rows:
+                          cells = [c.get_text(strip=True) for c in row.find_all(['td', 'th'])]
+                          if cells:
+                              table_data.append(cells)
+                  data['tables'] = table_data
+              
+              return data
+
+          def read_sql_database(connection_string, query):
+              """Lit depuis une base de données SQL"""
+              engine = sa.create_engine(connection_string)
+              with engine.connect() as conn:
+                  df = pd.read_sql(query, conn)
+              return df.to_dict('records')[0] if not df.empty else {}
+
+          def fetch_api_rest(url, method='GET', headers=None, params=None,
+          data=None):
+              """Appelle une API REST"""
+              if method.upper() == 'GET':
+                  response = requests.get(url, headers=headers, params=params)
+              elif method.upper() == 'POST':
+                  response = requests.post(url, headers=headers, json=data)
+              elif method.upper() == 'PUT':
+                  response = requests.put(url, headers=headers, json=data)
+              elif method.upper() == 'DELETE':
+                  response = requests.delete(url, headers=headers)
+              else:
+                  raise ValueError(f"Méthode non supportée: {method}")
+              
+              response.raise_for_status()
+              return response.json()
+
+          def fetch_api_graphql(url, query, variables=None, headers=None):
+              """Appelle une API GraphQL"""
+              payload = {'query': query}
+              if variables:
+                  payload['variables'] = variables
+              
+              response = requests.post(url, json=payload, headers=headers)
+              response.raise_for_status()
+              return response.json()
+
+
+          # ============================================
+
+          # DÉTECTION DU FORMAT / SOURCE
+
+          # ============================================
+
+
+          def detect_format(file_path):
+              """Détecte le format à partir de l'extension"""
+              ext = os.path.splitext(file_path)[1].lower()
+              formats = {
+                  '.csv': 'csv',
+                  '.json': 'json',
+                  '.xml': 'xml',
+                  '.xlsx': 'excel',
+                  '.xls': 'excel',
+                  '.parquet': 'parquet',
+                  '.html': 'html',
+                  '.htm': 'html'
+              }
+              return formats.get(ext, 'unknown')
+
+          def detect_source_type(source_type, source_path):
+              """Détecte le type de source"""
+              if source_type:
+                  return source_type
+              if source_path.startswith('http://') or source_path.startswith('https://'):
+                  return 'api'
+              if source_path.startswith('postgresql://') or source_path.startswith('mysql://') or source_path.startswith('sqlite://'):
+                  return 'sql'
+              ext = os.path.splitext(source_path)[1].lower()
+              if ext in ['.csv']:
+                  return 'csv'
+              if ext in ['.json', '.xml']:
+                  return 'json'
+              if ext in ['.xlsx', '.xls']:
+                  return 'excel'
+              if ext in ['.parquet']:
+                  return 'parquet'
+              if ext in ['.html', '.htm']:
+                  return 'html'
+              return 'unknown'
+
+
+          # ============================================
+
+          # LECTURE DES DONNÉES SELON LA SOURCE
+
+          # ============================================
+
+
+          def read_data_from_source(source_type, source_path, file_path=None,
+          format=None, **kwargs):
+              """
+              Lit les données selon le type de source
+              """
+              if source_type in ['csv', 'json', 'xml', 'excel', 'parquet', 'html']:
+                  actual_path = file_path or source_path
+                  if not os.path.exists(actual_path):
+                      raise FileNotFoundError(f"Fichier introuvable: {actual_path}")
+                  
+                  if source_type == 'csv':
+                      return read_csv_file(actual_path)
+                  elif source_type == 'json':
+                      return read_json_file(actual_path)
+                  elif source_type == 'xml':
+                      return read_xml_file(actual_path)
+                  elif source_type == 'excel':
+                      return read_excel_file(actual_path)
+                  elif source_type == 'parquet':
+                      return read_parquet_file(actual_path)
+                  elif source_type == 'html':
+                      return read_html_file(actual_path)
+              
+              elif source_type == 'api':
+                  url = source_path
+                  method = kwargs.get('method', 'GET')
+                  headers = kwargs.get('headers', {})
+                  data = kwargs.get('data', {})
+                  params = kwargs.get('params', {})
+                  return fetch_api_rest(url, method, headers, params, data)
+              
+              elif source_type == 'graphql':
+                  url = source_path
+                  query = kwargs.get('query', '')
+                  variables = kwargs.get('variables', {})
+                  headers = kwargs.get('headers', {})
+                  return fetch_api_graphql(url, query, variables, headers)
+              
+              elif source_type == 'sql':
+                  connection_string = source_path
+                  query = kwargs.get('query', 'SELECT * FROM table LIMIT 1')
+                  return read_sql_database(connection_string, query)
+              
+              else:
+                  raise ValueError(f"Type de source non supporté: {source_type}")
+
+
+          # ============================================
+
+          # MÉTRIQUES (CPU / Mémoire)
+
+          # ============================================
 
 
           def get_cpu_usage():
-              """Récupère l'utilisation CPU depuis /proc/stat"""
               try:
                   with open('/proc/stat', 'r') as f:
                       line = f.readline()
@@ -37,7 +278,6 @@ value:
                   return 0
 
           def get_memory_mb():
-              """Récupère la mémoire utilisée en MB depuis /proc/self/status"""
               try:
                   with open('/proc/self/status', 'r') as f:
                       for line in f:
@@ -47,68 +287,87 @@ value:
               except:
                   return 0
 
-          def main(source_type: str = None, source_path: str = None):
+
+          # ============================================
+
+          # SCRIPT PRINCIPAL
+
+          # ============================================
+
+
+          def main(
+              source_type: str = None,
+              source_path: str = None,
+              file_path: str = None,
+              format: str = None,
+              method: str = 'GET',
+              headers: str = None,
+              params: str = None,
+              data: str = None,
+              query: str = None,
+              variables: str = None
+          ):
               """
-              Ingestion - Récupère UNIQUEMENT les données correspondant aux filtres
+              Ingestion - Connecteur vers toutes les sources de données
               """
               start_time = time.time()
               script_name = "ingestion"
-
+              
               try:
+                  actual_source_type = detect_source_type(source_type, source_path)
+                  print(f"🔍 Type de source détecté: {actual_source_type}")
+                  
+                  actual_file_path = file_path
+                  if actual_file_path is None and actual_source_type in ['csv', 'json', 'xml', 'excel', 'parquet', 'html']:
+                      if source_path.startswith('/'):
+                          actual_file_path = source_path
+                      else:
+                          actual_file_path = f"/data/{source_path}"
+                  
+                  headers_dict = json.loads(headers) if headers else {}
+                  params_dict = json.loads(params) if params else {}
+                  data_dict = json.loads(data) if data else {}
+                  variables_dict = json.loads(variables) if variables else {}
+                  
+                  print(f"📁 Source: {source_path}")
+                  print(f"📄 Type: {actual_source_type}")
+                  
+                  raw_data = read_data_from_source(
+                      source_type=actual_source_type,
+                      source_path=source_path,
+                      file_path=actual_file_path,
+                      format=format,
+                      method=method,
+                      headers=headers_dict,
+                      params=params_dict,
+                      data=data_dict,
+                      query=query,
+                      variables=variables_dict
+                  )
+                  
+                  print(f"📊 Données lues: {json.dumps(raw_data, indent=2)}")
+                  
                   client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                   db = client["data_pipeline"]
-
-                  query = {"status": "pending"}
-                  if source_type:
-                      query["source_type"] = source_type
-                  if source_path:
-                      query["source_path"] = source_path
-
-                  print(f"🔍 Filtres appliqués: {json.dumps(query, indent=2)}")
-
-                  pending_data = list(db.raw_data.find(query).limit(1))
-
-                  if not pending_data:
-                      stats = list(
-                          db.raw_data.aggregate(
-                              [
-                                  {"$match": {"status": "pending"}},
-                                  {"$group": {"_id": "$source_type", "count": {"$sum": 1}}},
-                              ]
-                          )
-                      )
-                      available = ", ".join([f"{s['_id']}: {s['count']}" for s in stats])
-
-                      duration_ms = (time.time() - start_time) * 1000
-                      db.script_metrics.insert_one({
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "error",
-                          "error": "No pending data found",
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat()
-                      })
-
-                      return {
-                          "status": "error",
-                          "message": f"No pending data found with filters: {query}",
-                          "available_data": available or "No pending data at all",
-                          "filters_used": query,
-                          "step": "ingestion",
-                      }
-
-                  raw_document = pending_data[0]
-
-                  raw_payload = raw_document.get("raw_payload", {})
-                  raw_payload["ingested_at"] = datetime.now().isoformat()
-                  raw_payload["source_type"] = raw_document.get("source_type")
-                  raw_payload["source_path"] = raw_document.get("source_path")
-
-                  db.raw_data.update_one(
-                      {"_id": raw_document["_id"]}, {"$set": {"status": "processing"}}
-                  )
-
+                  
+                  raw_payload = {
+                      "source_type": actual_source_type,
+                      "source_path": source_path,
+                      "ingested_at": datetime.now().isoformat(),
+                      "data": raw_data,
+                      "file_format": format,
+                      "method": method if actual_source_type == 'api' else None
+                  }
+                  
+                  result = db.raw_data.insert_one({
+                      "source_type": actual_source_type,
+                      "source_path": source_path,
+                      "ingested_at": datetime.now().isoformat(),
+                      "step": script_name,
+                      "raw_payload": raw_payload,
+                      "status": "pending"
+                  })
+                  
                   duration_ms = (time.time() - start_time) * 1000
                   db.script_metrics.insert_one({
                       "script": script_name,
@@ -118,20 +377,42 @@ value:
                       "memory_mb": get_memory_mb(),
                       "timestamp": datetime.now().isoformat()
                   })
-
+                  
                   return {
                       "status": "success",
                       "raw_payload": raw_payload,
-                      "document_id": str(raw_document["_id"]),
-                      "source_type": raw_document.get("source_type"),
-                      "source_path": raw_document.get("source_path"),
-                      "filters_used": query,
+                      "document_id": str(result.inserted_id),
+                      "source_type": actual_source_type,
+                      "source_path": source_path,
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
                       "memory_mb": get_memory_mb(),
-                      "step": "ingestion",
+                      "step": "ingestion"
                   }
-
+                  
+              except FileNotFoundError as e:
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": str(e)[:100],
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
+                  except:
+                      pass
+                  
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "ingestion"
+                  }
+                  
               except Exception as e:
                   duration_ms = (time.time() - start_time) * 1000
                   try:
@@ -148,10 +429,38 @@ value:
                       })
                   except:
                       pass
-
-                  return {"status": "error", "message": str(e), "step": "ingestion"}
+                  
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "ingestion"
+                  }
         language: python3
         input_transforms:
+          data:
+            expr: flow_input.data
+            type: javascript
+          query:
+            expr: flow_input.query
+            type: javascript
+          format:
+            expr: flow_input.format
+            type: javascript
+          method:
+            expr: flow_input.method
+            type: javascript
+          params:
+            expr: flow_input.params
+            type: javascript
+          headers:
+            expr: flow_input.headers
+            type: javascript
+          file_path:
+            expr: flow_input.file_path
+            type: javascript
+          variables:
+            expr: flow_input.variables
+            type: javascript
           source_path:
             expr: flow_input.source_path
             type: javascript
@@ -179,9 +488,10 @@ value:
           from pymongo import MongoClient
 
 
+
           def get_cpu_usage():
               try:
-                  with open('/proc/stat', 'r') as f:
+                  with open("/proc/stat", "r") as f:
                       line = f.readline()
                       parts = line.split()
                       user = int(parts[1])
@@ -193,105 +503,119 @@ value:
               except:
                   return 0
 
+
           def get_memory_mb():
               try:
-                  with open('/proc/self/status', 'r') as f:
+                  with open("/proc/self/status", "r") as f:
                       for line in f:
-                          if line.startswith('VmRSS:'):
+                          if line.startswith("VmRSS:"):
                               kb = int(line.split()[1])
                               return round(kb / 1024, 2)
               except:
                   return 0
 
-          def main(raw_data: dict):
+
+          def main(raw_data):
               """
               Profilage - Analyse des types, colonnes, valeurs nulles
               """
               start_time = time.time()
               script_name = "profiling"
-              
+
               try:
                   print("=" * 60)
                   print("📥 Données reçues dans profiling:")
                   print(f"  - Type: {type(raw_data)}")
-                  print(f"  - Clés: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'Not a dict'}")
+
+                  if isinstance(raw_data, dict):
+                      print(f"  - Clés: {list(raw_data.keys())}")
+                  elif isinstance(raw_data, list):
+                      print(f"  - Longueur de la liste: {len(raw_data)}")
+                      if len(raw_data) > 0:
+                          print(f"  - Premier élément type: {type(raw_data[0])}")
+                          if isinstance(raw_data[0], dict):
+                              print(f"  - Clés du premier élément: {list(raw_data[0].keys())}")
                   print("=" * 60)
-                  
-                  if not isinstance(raw_data, dict):
-                      duration_ms = (time.time() - start_time) * 1000
-                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                      db = client["data_pipeline"]
-                      db.script_metrics.insert_one({
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "error",
-                          "error": "raw_data is not a dict",
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat()
-                      })
-                      return {
-                          "status": "error",
-                          "message": f"raw_data is not a dict: {type(raw_data)}",
-                          "step": "profiling"
-                      }
-                  
-                  data = raw_data
-                  
+
+                  # Gestion des différents types de données
+                  if isinstance(raw_data, list):
+                      if len(raw_data) > 0 and isinstance(raw_data[0], dict):
+                          data = raw_data[0]
+                          print(f"📊 Liste de {len(raw_data)} éléments, utilisation du premier")
+                      else:
+                          data = {"items": raw_data, "count": len(raw_data)}
+                  elif isinstance(raw_data, dict):
+                      data = raw_data
+                  else:
+                      data = {"value": raw_data}
+
                   print(f"📊 Données à profiler: {json.dumps(data, indent=2)}")
                   print("=" * 60)
-                  
-                  column_count = len(data)
-                  data_types = {k: type(v).__name__ for k, v in data.items()}
-                  null_values = {k: v is None for k, v in data.items()}
-                  
+
+                  # Profilage
+                  if isinstance(data, dict):
+                      column_count = len(data)
+                      data_types = {k: type(v).__name__ for k, v in data.items()}
+                      null_values = {k: v is None for k, v in data.items()}
+                      columns = list(data.keys())
+                  elif isinstance(data, list):
+                      column_count = len(data)
+                      data_types = {"list_item_type": type(data[0]).__name__ if data else "empty"}
+                      null_values = {"list_empty": len(data) == 0}
+                      columns = [f"item_{i}" for i in range(min(len(data), 5))]
+                  else:
+                      column_count = 1
+                      data_types = {"value_type": type(data).__name__}
+                      null_values = {"is_null": data is None}
+                      columns = ["value"]
+
                   duration_ms = (time.time() - start_time) * 1000
                   client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                   db = client["data_pipeline"]
-                  db.script_metrics.insert_one({
-                      "script": script_name,
-                      "duration_ms": duration_ms,
-                      "status": "success",
-                      "cpu_percent": get_cpu_usage(),
-                      "memory_mb": get_memory_mb(),
-                      "timestamp": datetime.now().isoformat()
-                  })
-                  
+                  db.script_metrics.insert_one(
+                      {
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "success",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat(),
+                      }
+                  )
+
                   return {
                       "status": "success",
                       "profile": {
                           "column_count": column_count,
                           "data_types": data_types,
                           "null_values": null_values,
-                          "columns": list(data.keys())
+                          "columns": columns,
                       },
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
                       "memory_mb": get_memory_mb(),
-                      "step": "profiling"
+                      "step": "profiling",
                   }
-                  
+
               except Exception as e:
                   duration_ms = (time.time() - start_time) * 1000
                   try:
                       client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                       db = client["data_pipeline"]
-                      db.script_metrics.insert_one({
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "error",
-                          "error": str(e)[:100],
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat()
-                      })
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": str(e)[:100],
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
                   except:
                       pass
-                  return {
-                      "status": "error",
-                      "message": str(e),
-                      "step": "profiling"
-                  }
+                  return {"status": "error", "message": str(e), "step": "profiling"}
         language: python3
         input_transforms:
           raw_data:
@@ -343,8 +667,78 @@ value:
               except:
                   return 0
 
-          def main(raw_data: Dict[str, Any], format: Literal["csv", "excel",
-          "json", "html", "parquet"] = "json"):
+          def extract_data_from_html(html_data):
+              """
+              Extrait et formate les données HTML pour les rendre compatibles avec le mapping
+              """
+              result = {}
+              
+              if 'titles' in html_data and html_data['titles']:
+                  result['name'] = html_data['titles'][0]
+              
+              if 'tables' in html_data and html_data['tables']:
+                  table = html_data['tables'][0]
+                  if len(table) > 1:
+                      headers = table[0] if table else []
+                      values = table[1] if len(table) > 1 else []
+                      
+                      for i, header in enumerate(headers):
+                          header_lower = header.lower().strip()
+                          if i < len(values):
+                              value = values[i]
+                              if 'id' in header_lower or 'product' in header_lower:
+                                  result['id'] = value
+                              elif 'name' in header_lower:
+                                  if 'name' not in result:
+                                      result['name'] = value
+                              elif 'price' in header_lower or 'amount' in header_lower:
+                                  clean_price = value.replace('$', '').replace('€', '').replace(',', '').strip()
+                                  result['amount'] = clean_price
+                              elif 'date' in header_lower:
+                                  result['date'] = value
+                              elif 'country' in header_lower or 'origin' in header_lower:
+                                  result['country'] = value
+                              elif 'email' in header_lower or 'contact' in header_lower:
+                                  result['email'] = value
+              
+              if not result and 'paragraphs' in html_data and html_data['paragraphs']:
+                  text = ' '.join(html_data['paragraphs'])
+                  import re
+                  email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+                  if email_match:
+                      result['email'] = email_match.group()
+                  price_match = re.search(r'\$?(\d+\.?\d*)', text)
+                  if price_match:
+                      result['amount'] = price_match.group(1)
+              
+              if 'name' in result and 'id' not in result:
+                  result['id'] = 'HTML001'
+              
+              if 'email' in result and 'country' not in result:
+                  if '@' in result['email']:
+                      domain = result['email'].split('@')[1].lower()
+                      if 'fr' in domain:
+                          result['country'] = 'FR'
+                      elif 'de' in domain:
+                          result['country'] = 'DE'
+                      elif 'uk' in domain or 'co.uk' in domain:
+                          result['country'] = 'UK'
+                      elif 'ca' in domain:
+                          result['country'] = 'CA'
+                      else:
+                          result['country'] = 'US'
+              
+              if 'date' not in result:
+                  from datetime import datetime
+                  result['date'] = datetime.now().strftime('%Y-%m-%d')
+              
+              if 'email' not in result:
+                  result['email'] = 'no-email@example.com'
+              
+              return result
+
+          def main(raw_data, format: Literal["csv", "excel", "json", "html",
+          "parquet"] = "json"):
               """
               Parsing - CSV, Excel, JSON, HTML, Parquet
               """
@@ -355,37 +749,46 @@ value:
                   print("=" * 60)
                   print("📥 Données reçues dans parsing:")
                   print(f"  - format: {format}")
-                  print(f"  - raw_data keys: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'Not a dict'}")
+                  print(f"  - raw_data type: {type(raw_data)}")
+                  
+                  if isinstance(raw_data, dict):
+                      print(f"  - raw_data keys: {list(raw_data.keys())}")
+                  elif isinstance(raw_data, list):
+                      print(f"  - raw_data length: {len(raw_data)}")
+                      if len(raw_data) > 0:
+                          print(f"  - Premier élément type: {type(raw_data[0])}")
+                  else:
+                      print(f"  - raw_data value: {raw_data}")
                   print("=" * 60)
                   
-                  if not isinstance(raw_data, dict):
-                      duration_ms = (time.time() - start_time) * 1000
-                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                      db = client["data_pipeline"]
-                      db.script_metrics.insert_one({
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "error",
-                          "error": "raw_data is not a dict",
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat()
-                      })
-                      return {
-                          "status": "error",
-                          "message": f"raw_data is not a dict: {type(raw_data)}",
-                          "step": "parsing"
-                      }
+                  # Gestion des différents types de données
+                  if isinstance(raw_data, list):
+                      if len(raw_data) == 0:
+                          records = {"empty": True, "count": 0}
+                      else:
+                          # Prendre le premier élément de la liste
+                          records = raw_data[0]
+                          print(f"📊 Liste de {len(raw_data)} éléments, utilisation du premier")
+                  elif isinstance(raw_data, dict):
+                      records = raw_data
+                  else:
+                      records = {"value": raw_data}
                   
-                  records = raw_data
+                  # Si c'est du HTML et que les clés caractéristiques sont présentes
+                  if format == 'html' or (isinstance(records, dict) and any(k in records for k in ['titles', 'paragraphs', 'tables'])):
+                      print("🔄 Détection de données HTML, extraction en cours...")
+                      records = extract_data_from_html(records)
+                      print(f"📊 Données extraites: {json.dumps(records, indent=2)}")
                   
-                  print(f"📊 Données parsées: {json.dumps(records, indent=2)}")
+                  print(f"📊 Records type: {type(records)}")
+                  if isinstance(records, dict):
+                      print(f"📊 Records keys: {list(records.keys())}")
                   print("=" * 60)
                   
                   parsed_data = {
                       "format": format,
                       "records": records,
-                      "record_count": len(records) if isinstance(records, dict) else 0
+                      "record_count": len(records) if isinstance(records, (dict, list)) else 1
                   }
                   
                   duration_ms = (time.time() - start_time) * 1000
@@ -442,11 +845,33 @@ value:
     - id: d
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:c236708f7b0a13dd223be74c7c41af31bc083615f8ab040d11365667f1d16791
           # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
-          pymongo==4.17.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.15.0
+          tzdata==2026.2
+          urllib3==2.7.0
         type: rawscript
-        content: >
+        content: >-
           import time
 
           import json
@@ -456,7 +881,6 @@ value:
           from datetime import datetime
 
           from pymongo import MongoClient
-
 
 
           def get_cpu_usage():
@@ -473,7 +897,6 @@ value:
               except:
                   return 0
 
-
           def get_memory_mb():
               try:
                   with open("/proc/self/status", "r") as f:
@@ -483,7 +906,6 @@ value:
                               return round(kb / 1024, 2)
               except:
                   return 0
-
 
           def main(parsed_data: dict):
               """
@@ -495,11 +917,10 @@ value:
               try:
                   print("=" * 60)
                   print("📥 Données reçues dans mapping:")
-                  print(
-                      f"  - parsed_data keys: {list(parsed_data.keys()) if isinstance(parsed_data, dict) else 'Not a dict'}"
-                  )
+                  print(f"  - parsed_data keys: {list(parsed_data.keys()) if isinstance(parsed_data, dict) else 'Not a dict'}")
                   print("=" * 60)
 
+                  # Récupération des records
                   if isinstance(parsed_data, dict) and "records" in parsed_data:
                       records = parsed_data["records"]
                       print(f"✅ Utilisation de parsed_data['records']")
@@ -507,27 +928,42 @@ value:
                       records = parsed_data
                       print(f"✅ Utilisation de parsed_data directement")
 
+                  # Si records est une liste
+                  if isinstance(records, list):
+                      if len(records) == 0:
+                          return {
+                              "status": "error",
+                              "message": "Records list is empty",
+                              "step": "mapping"
+                          }
+                      # Prendre le premier élément de la liste
+                      records = records[0]
+                      print(f"📊 Liste détectée, utilisation du premier élément")
+                  elif not isinstance(records, dict):
+                      # Si ce n'est pas un dict, on le convertit
+                      records = {"value": records}
+                      print(f"📊 Conversion en dictionnaire")
+
                   if not isinstance(records, dict):
                       duration_ms = (time.time() - start_time) * 1000
                       client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                       db = client["data_pipeline"]
-                      db.script_metrics.insert_one(
-                          {
-                              "script": script_name,
-                              "duration_ms": duration_ms,
-                              "status": "error",
-                              "error": "records is not a dict",
-                              "cpu_percent": get_cpu_usage(),
-                              "memory_mb": get_memory_mb(),
-                              "timestamp": datetime.now().isoformat(),
-                          }
-                      )
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": "records is not a dict",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
                       return {
                           "status": "error",
                           "message": f"records is not a dict: {type(records)}",
-                          "step": "mapping",
+                          "step": "mapping"
                       }
 
+                  # Mapping des champs
                   mapping_rules = {
                       "id": "user_id",
                       "name": "full_name",
@@ -550,16 +986,14 @@ value:
                   duration_ms = (time.time() - start_time) * 1000
                   client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                   db = client["data_pipeline"]
-                  db.script_metrics.insert_one(
-                      {
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "success",
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat(),
-                      }
-                  )
+                  db.script_metrics.insert_one({
+                      "script": script_name,
+                      "duration_ms": duration_ms,
+                      "status": "success",
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "timestamp": datetime.now().isoformat()
+                  })
 
                   return {
                       "status": "success",
@@ -567,7 +1001,7 @@ value:
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
                       "memory_mb": get_memory_mb(),
-                      "step": "mapping",
+                      "step": "mapping"
                   }
 
               except Exception as e:
@@ -575,17 +1009,15 @@ value:
                   try:
                       client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                       db = client["data_pipeline"]
-                      db.script_metrics.insert_one(
-                          {
-                              "script": script_name,
-                              "duration_ms": duration_ms,
-                              "status": "error",
-                              "error": str(e)[:100],
-                              "cpu_percent": get_cpu_usage(),
-                              "memory_mb": get_memory_mb(),
-                              "timestamp": datetime.now().isoformat(),
-                          }
-                      )
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": str(e)[:100],
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
                   except:
                       pass
                   return {"status": "error", "message": str(e), "step": "mapping"}
@@ -602,7 +1034,7 @@ value:
           dnspython==2.8.0
           pymongo==4.17.0
         type: rawscript
-        content: >
+        content: >-
           import time
 
           import json
@@ -761,7 +1193,7 @@ value:
           dnspython==2.8.0
           pymongo==4.17.0
         type: rawscript
-        content: >
+        content: >-
           import time
 
           import json
@@ -1000,7 +1432,7 @@ value:
           dnspython==2.8.0
           pymongo==4.17.0
         type: rawscript
-        content: >
+        content: >-
           import time
 
           import json
@@ -1620,7 +2052,7 @@ value:
                 dnspython==2.8.0
                 pymongo==4.17.0
               type: rawscript
-              content: >
+              content: >-
                 import time
 
                 import json
@@ -1938,7 +2370,7 @@ value:
                     dnspython==2.8.0
                     pymongo==4.17.0
                   type: rawscript
-                  content: >
+                  content: >-
                     import time
 
                     import json
@@ -2687,32 +3119,60 @@ schema:
   properties:
     source_type:
       type: string
-      description: Type de source (csv, api, json, excel, html)
-      default: csv
+      description: Type de source de données
       enum:
         - csv
-        - api
         - json
+        - xml
         - excel
+        - parquet
         - html
+        - api
+        - graphql
+        - sql
+      default: csv
     source_path:
       type: string
-      description: Chemin ou URL de la source
-      default: /data/test.csv
-    format:
+      description: Chemin du fichier, URL de l'API, ou chaîne de connexion SQL
+      default: /data/sales_2024.csv
+    method:
       type: string
-      description: Format des données
-      default: json
+      description: Méthode HTTP pour API REST
       enum:
-        - csv
-        - excel
-        - json
-        - html
-        - parquet
+        - GET
+        - POST
+        - PUT
+        - DELETE
+      default: GET
+    headers:
+      type: string
+      description: Headers HTTP (format JSON)
+      default: "{}"
+    params:
+      type: string
+      description: Paramètres de requête (format JSON)
+      default: "{}"
+    data:
+      type: string
+      description: Corps de la requête (format JSON) pour API POST/PUT
+      default: "{}"
+    query:
+      type: string
+      description: Requête GraphQL ou SQL
+      default: ""
+    variables:
+      type: string
+      description: Variables GraphQL (format JSON)
+      default: "{}"
   required:
     - source_type
     - source_path
   order:
     - source_type
     - source_path
-    - format
+    - method
+    - headers
+    - params
+    - data
+    - query
+    - variables

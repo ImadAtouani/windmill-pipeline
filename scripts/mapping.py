@@ -28,6 +28,43 @@ def get_memory_mb():
     except:
         return 0
 
+
+def normalize_records(records):
+    if isinstance(records, list):
+        return [record if isinstance(record, dict) else {"value": record} for record in records], True
+    if isinstance(records, dict):
+        return [records], False
+    return [{"value": records}], False
+
+
+def map_record(record):
+    mapped = {}
+
+    if "id" in record:
+        mapped["user_id"] = record["id"]
+    if "name" in record:
+        mapped["full_name"] = record["name"]
+    if "amount" in record:
+        mapped["amount"] = record["amount"]
+    elif "price" in record:
+        mapped["amount"] = record["price"]
+    elif "salary" in record:
+        mapped["amount"] = record["salary"]
+    if "date" in record:
+        mapped["transaction_date"] = record["date"]
+    if "email" in record:
+        mapped["email_address"] = record["email"]
+
+    country_value = record.get("country_code", record.get("country"))
+    if country_value is not None:
+        mapped["country_code"] = country_value
+
+    for key, value in record.items():
+        if key not in ["id", "name", "amount", "price", "salary", "date", "email", "country", "country_code"]:
+            mapped[key] = value
+
+    return mapped
+
 def main(parsed_data: dict):
     """
     Mapping - champs source → modèle cible
@@ -49,23 +86,15 @@ def main(parsed_data: dict):
             records = parsed_data
             print(f"✅ Utilisation de parsed_data directement")
 
-        # Si records est une liste
-        if isinstance(records, list):
-            if len(records) == 0:
-                return {
-                    "status": "error",
-                    "message": "Records list is empty",
-                    "step": "mapping"
-                }
-            # Prendre le premier élément de la liste
-            records = records[0]
-            print(f"📊 Liste détectée, utilisation du premier élément")
-        elif not isinstance(records, dict):
-            # Si ce n'est pas un dict, on le convertit
-            records = {"value": records}
-            print(f"📊 Conversion en dictionnaire")
+        record_list, was_list = normalize_records(records)
+        if len(record_list) == 0:
+            return {
+                "status": "error",
+                "message": "Records list is empty",
+                "step": "mapping"
+            }
 
-        if not isinstance(records, dict):
+        if not all(isinstance(record, dict) for record in record_list):
             duration_ms = (time.time() - start_time) * 1000
             client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
             db = client["data_pipeline"]
@@ -84,22 +113,8 @@ def main(parsed_data: dict):
                 "step": "mapping"
             }
 
-        # Mapping des champs
-        mapping_rules = {
-            "id": "user_id",
-            "name": "full_name",
-            "amount": "amount",
-            "date": "transaction_date",
-            "country": "country_code",
-            "email": "email_address",
-        }
-
-        mapped_data = {}
-        for source, target in mapping_rules.items():
-            if source in records:
-                mapped_data[target] = records[source]
-            else:
-                print(f"⚠️ Champ source manquant: {source}")
+        mapped_records = [map_record(record) for record in record_list]
+        mapped_data = mapped_records if was_list else mapped_records[0]
 
         print(f"📊 Données mappées: {json.dumps(mapped_data, indent=2)}")
         print("=" * 60)
@@ -119,6 +134,7 @@ def main(parsed_data: dict):
         return {
             "status": "success",
             "mapped_data": mapped_data,
+            "record_count": len(mapped_records),
             "duration_ms": round(duration_ms, 2),
             "cpu_percent": get_cpu_usage(),
             "memory_mb": get_memory_mb(),

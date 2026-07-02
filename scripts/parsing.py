@@ -33,36 +33,55 @@ def extract_data_from_html(html_data):
     """
     Extrait et formate les données HTML pour les rendre compatibles avec le mapping
     """
-    result = {}
-    
-    if 'titles' in html_data and html_data['titles']:
-        result['name'] = html_data['titles'][0]
-    
+    records = []
+
     if 'tables' in html_data and html_data['tables']:
-        table = html_data['tables'][0]
-        if len(table) > 1:
-            headers = table[0] if table else []
-            values = table[1] if len(table) > 1 else []
-            
-            for i, header in enumerate(headers):
-                header_lower = header.lower().strip()
-                if i < len(values):
+        table_blob = html_data['tables']
+
+        if table_blob and isinstance(table_blob[0], list) and table_blob[0] and isinstance(table_blob[0][0], list):
+            candidate_tables = table_blob
+        else:
+            candidate_tables = [table_blob]
+
+        for table in candidate_tables:
+            if not table or len(table) < 2:
+                continue
+
+            headers = table[0]
+            for values in table[1:]:
+                record = {}
+                for i, header in enumerate(headers):
+                    if i >= len(values):
+                        continue
+
+                    header_lower = header.lower().strip()
                     value = values[i]
+
                     if 'id' in header_lower or 'product' in header_lower:
-                        result['id'] = value
+                        record['id'] = value
                     elif 'name' in header_lower:
-                        if 'name' not in result:
-                            result['name'] = value
+                        record['name'] = value
                     elif 'price' in header_lower or 'amount' in header_lower:
                         clean_price = value.replace('$', '').replace('€', '').replace(',', '').strip()
-                        result['amount'] = clean_price
+                        record['amount'] = clean_price
                     elif 'date' in header_lower:
-                        result['date'] = value
+                        record['date'] = value
                     elif 'country' in header_lower or 'origin' in header_lower:
-                        result['country'] = value
+                        record['country'] = value
                     elif 'email' in header_lower or 'contact' in header_lower:
-                        result['email'] = value
-    
+                        record['email'] = value
+
+                if record:
+                    records.append(record)
+
+    if records:
+        return records
+
+    result = {}
+
+    if 'titles' in html_data and html_data['titles']:
+        result['title'] = html_data['titles'][0]
+
     if not result and 'paragraphs' in html_data and html_data['paragraphs']:
         text = ' '.join(html_data['paragraphs'])
         import re
@@ -72,9 +91,6 @@ def extract_data_from_html(html_data):
         price_match = re.search(r'\$?(\d+\.?\d*)', text)
         if price_match:
             result['amount'] = price_match.group(1)
-    
-    if 'name' in result and 'id' not in result:
-        result['id'] = 'HTML001'
     
     if 'email' in result and 'country' not in result:
         if '@' in result['email']:
@@ -125,11 +141,10 @@ def main(raw_data, format: Literal["csv", "excel", "json", "html", "parquet"] = 
         # Gestion des différents types de données
         if isinstance(raw_data, list):
             if len(raw_data) == 0:
-                records = {"empty": True, "count": 0}
+                records = []
             else:
-                # Prendre le premier élément de la liste
-                records = raw_data[0]
-                print(f"📊 Liste de {len(raw_data)} éléments, utilisation du premier")
+                records = raw_data
+                print(f"📊 Liste de {len(raw_data)} éléments conservée")
         elif isinstance(raw_data, dict):
             records = raw_data
         else:
@@ -144,12 +159,14 @@ def main(raw_data, format: Literal["csv", "excel", "json", "html", "parquet"] = 
         print(f"📊 Records type: {type(records)}")
         if isinstance(records, dict):
             print(f"📊 Records keys: {list(records.keys())}")
+        elif isinstance(records, list):
+            print(f"📊 Records length: {len(records)}")
         print("=" * 60)
         
         parsed_data = {
             "format": format,
             "records": records,
-            "record_count": len(records) if isinstance(records, (dict, list)) else 1
+            "record_count": len(records) if isinstance(records, list) else 1
         }
         
         duration_ms = (time.time() - start_time) * 1000

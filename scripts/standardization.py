@@ -31,6 +31,53 @@ def get_memory_mb():
         return 0
 
 
+def normalize_records(data):
+    if isinstance(data, list):
+        return [item if isinstance(item, dict) else {"value": item} for item in data], True
+    if isinstance(data, dict):
+        return [data], False
+    return [{"value": data}], False
+
+
+def parse_amount(value):
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.replace("€", "").replace("$", "").replace(",", "").strip())
+        except ValueError:
+            return None
+    return None
+
+
+def standardize_record(record, country_mapping):
+    standardized = record.copy()
+    record_stats = {
+        "countries_normalized": 0,
+        "currencies_converted": 0,
+        "units_normalized": 0,
+    }
+
+    country_value = standardized.get("country_code", standardized.get("country"))
+    if isinstance(country_value, str):
+        country_code = country_value.upper()
+        if country_code in country_mapping:
+            standardized["country_code"] = country_code
+            standardized["country_name"] = country_mapping[country_code]
+            record_stats["countries_normalized"] += 1
+        elif "country" in standardized:
+            standardized["country"] = country_code
+
+    if "amount" in standardized:
+        amount_numeric = parse_amount(standardized["amount"])
+        if amount_numeric is not None:
+            standardized["amount"] = amount_numeric
+            standardized["amount_usd"] = round(amount_numeric * 1.08, 2)
+            record_stats["currencies_converted"] += 1
+
+    return standardized, record_stats
+
+
 def main(typed_data: dict):
     """
     Standardisation - noms, unités, devises, pays
@@ -47,31 +94,18 @@ def main(typed_data: dict):
         )
         print("=" * 60)
 
-        if not isinstance(typed_data, dict):
-            duration_ms = (time.time() - start_time) * 1000
-            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-            db = client["data_pipeline"]
-            db.script_metrics.insert_one(
-                {
-                    "script": script_name,
-                    "duration_ms": duration_ms,
-                    "status": "error",
-                    "error": "typed_data is not a dict",
-                    "cpu_percent": get_cpu_usage(),
-                    "memory_mb": get_memory_mb(),
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
+        record_list, was_list = normalize_records(typed_data)
+
+        if len(record_list) == 0:
             return {
                 "status": "error",
-                "message": f"typed_data is not a dict: {type(typed_data)}",
+                "message": "typed_data is empty",
                 "step": "standardization",
             }
 
         print(f"📊 Données avant standardisation: {json.dumps(typed_data, indent=2)}")
         print("=" * 60)
 
-        standardized = typed_data.copy()
         std_stats = {
             "countries_normalized": 0,
             "currencies_converted": 0,
@@ -91,31 +125,14 @@ def main(typed_data: dict):
             "AU": "Australia",
         }
 
-        if "country" in standardized:
-            if standardized["country"] in country_mapping:
-                standardized["country_name"] = country_mapping[standardized["country"]]
-                std_stats["countries_normalized"] += 1
-                print(
-                    f"  ✅ country: '{standardized['country']}' → '{standardized['country_name']}'"
-                )
-            elif (
-                "country_code" in standardized
-                and standardized["country_code"] in country_mapping
-            ):
-                standardized["country_name"] = country_mapping[
-                    standardized["country_code"]
-                ]
-                std_stats["countries_normalized"] += 1
-                print(
-                    f"  ✅ country_code: '{standardized['country_code']}' → '{standardized['country_name']}'"
-                )
+        standardized_records = []
+        for record in record_list:
+            standardized_record, record_stats = standardize_record(record, country_mapping)
+            standardized_records.append(standardized_record)
+            for stat_key in std_stats:
+                std_stats[stat_key] += record_stats[stat_key]
 
-        if "amount" in standardized:
-            standardized["amount_usd"] = standardized["amount"] * 1.08
-            std_stats["currencies_converted"] += 1
-            print(
-                f"  ✅ amount: {standardized['amount']} EUR → {standardized['amount_usd']} USD"
-            )
+        standardized = standardized_records if was_list else standardized_records[0]
 
         print("=" * 60)
         print(f"📊 Statistiques de standardisation: {json.dumps(std_stats, indent=2)}")
@@ -139,6 +156,7 @@ def main(typed_data: dict):
         return {
             "status": "success",
             "standardized_data": standardized,
+            "record_count": len(standardized_records),
             "standardization_stats": std_stats,
             "duration_ms": round(duration_ms, 2),
             "cpu_percent": get_cpu_usage(),

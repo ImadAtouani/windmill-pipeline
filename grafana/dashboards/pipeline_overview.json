@@ -20,7 +20,7 @@
     },
     {
       "id": 2,
-      "title": "Données brutes",
+      "title": "Données brutes (cumulées)",
       "type": "stat",
       "gridPos": {"h": 3, "w": 8, "x": 0, "y": 1},
       "targets": [{"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"}],
@@ -35,7 +35,7 @@
     },
     {
       "id": 3,
-      "title": "Données normalisées",
+      "title": "Données normalisées (cumulées)",
       "type": "stat",
       "gridPos": {"h": 3, "w": 8, "x": 8, "y": 1},
       "targets": [{"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "A", "legendFormat": "Normalisées"}],
@@ -50,7 +50,7 @@
     },
     {
       "id": 4,
-      "title": "Données rejetées",
+      "title": "Données rejetées (cumulées)",
       "type": "stat",
       "gridPos": {"h": 3, "w": 8, "x": 16, "y": 1},
       "targets": [{"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "A", "legendFormat": "Rejetées"}],
@@ -65,7 +65,7 @@
     },
     {
       "id": 7,
-      "title": "📈 Évolution des données",
+      "title": "📈 Évolution des données (cumulées)",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
       "targets": [
@@ -87,7 +87,7 @@
       "title": "🍩 Répartition par source",
       "type": "piechart",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
-      "targets": [{"expr": "windmill_pipeline_raw_by_source_ratio", "refId": "A"}],
+      "targets": [{"expr": "sum by (source_type) (windmill_pipeline_raw_by_source_ratio)", "refId": "A", "legendFormat": "{{source_type}}"}],
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "palette-classic"},
@@ -136,7 +136,7 @@
       "type": "barchart",
       "gridPos": {"h": 6, "w": 12, "x": 0, "y": 20},
       "targets": [
-        {"expr": "windmill_pipeline_error_rate_percent", "refId": "A", "legendFormat": "{{script}}"}
+        {"expr": "sum by (script) (windmill_pipeline_error_rate_percent)", "refId": "A", "legendFormat": "{{script}}"}
       ],
       "fieldConfig": {
         "defaults": {
@@ -158,8 +158,8 @@
       "type": "barchart",
       "gridPos": {"h": 6, "w": 12, "x": 12, "y": 20},
       "targets": [
-        {"expr": "windmill_pipeline_errors_total_ratio", "legendFormat": "Erreurs", "refId": "A"},
-        {"expr": "windmill_pipeline_success_total_ratio", "legendFormat": "Succès", "refId": "B"}
+        {"expr": "sum by (script) (windmill_pipeline_errors_total_ratio)", "legendFormat": "Erreurs - {{script}}", "refId": "A"},
+        {"expr": "sum by (script) (windmill_pipeline_success_total_ratio)", "legendFormat": "Succès - {{script}}", "refId": "B"}
       ],
       "fieldConfig": {
         "defaults": {
@@ -176,7 +176,7 @@
       "type": "barchart",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26},
       "targets": [
-        {"expr": "windmill_pipeline_cpu_percent", "refId": "A", "legendFormat": "{{script}}"}
+        {"expr": "sum by (script) (windmill_pipeline_cpu_percent)", "refId": "A", "legendFormat": "{{script}}"}
       ],
       "fieldConfig": {
         "defaults": {
@@ -193,7 +193,7 @@
       "type": "barchart",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26},
       "targets": [
-        {"expr": "windmill_pipeline_memory_mb_MB", "refId": "A", "legendFormat": "{{script}}"}
+        {"expr": "sum by (script) (windmill_pipeline_memory_mb_MB)", "refId": "A", "legendFormat": "{{script}}"}
       ],
       "fieldConfig": {
         "defaults": {
@@ -206,7 +206,7 @@
     },
     {
       "id": 15,
-      "title": "📊 Statistiques des données",
+      "title": "📊 Statistiques des données (cumulées)",
       "type": "table",
       "gridPos": {"h": 6, "w": 24, "x": 0, "y": 34},
       "targets": [

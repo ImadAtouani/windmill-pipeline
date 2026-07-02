@@ -11,6 +11,33 @@ from pymongo import MongoClient
 
 OTEL_COLLECTOR_URL = "http://otel_collector:4318/v1/metrics"
 
+
+def count_payload_records(payload):
+    if isinstance(payload, list):
+        return len(payload)
+    if isinstance(payload, dict):
+        return 1
+    if payload is None:
+        return 0
+    return 1
+
+
+def count_raw_records(db):
+    total = 0
+    for document in db.raw_data.find({}, {"raw_payload.data": 1}):
+        raw_data = document.get("raw_payload", {}).get("data")
+        total += count_payload_records(raw_data)
+    return total
+
+
+def count_raw_records_by_source(db):
+    counts = {}
+    for document in db.raw_data.find({}, {"raw_payload.data": 1, "source_type": 1}):
+        source_type = document.get("source_type") or "unknown"
+        raw_data = document.get("raw_payload", {}).get("data")
+        counts[source_type] = counts.get(source_type, 0) + count_payload_records(raw_data)
+    return counts
+
 def send_metric(name, value, unit="1", description="", attributes=None):
     """Envoie une métrique à l'OTEL Collector"""
     if attributes is None:
@@ -75,15 +102,13 @@ def main():
         # ============================================
         # 1. MÉTRIQUES DE COMPTAGE
         # ============================================
-        raw = db.raw_data.count_documents({})
+        raw = count_raw_records(db)
         norm = db.normalized_data.count_documents({})
         rej = db.rejected_data.count_documents({})
         pending = db.raw_data.count_documents({"status": "pending"})
         processing = db.raw_data.count_documents({"status": "processing"})
         
-        sources = list(db.raw_data.aggregate([
-            {"$group": {"_id": "$source_type", "count": {"$sum": 1}}}
-        ]))
+        sources = count_raw_records_by_source(db)
         
         print(f"📊 Métriques de comptage: raw={raw}, normalized={norm}, rejected={rej}")
         
@@ -93,9 +118,8 @@ def main():
         send_metric("pipeline.raw.pending.total", pending, "1", "Pending data", {"status": "pending"})
         send_metric("pipeline.raw.processing.total", processing, "1", "Processing data", {"status": "processing"})
         
-        for source in sources:
-            source_type = source['_id'] or 'unknown'
-            send_metric("pipeline.raw.by.source", source["count"], "1", "Data by source", {"source_type": source_type})
+        for source_type, count in sources.items():
+            send_metric("pipeline.raw.by.source", count, "1", "Data by source", {"source_type": source_type})
         
         # ============================================
         # 2. MÉTRIQUES DE LATENCE PAR TÂCHE

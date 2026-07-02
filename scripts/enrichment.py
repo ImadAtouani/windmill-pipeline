@@ -31,6 +31,27 @@ def get_memory_mb():
         return 0
 
 
+def normalize_records(data):
+    if isinstance(data, list):
+        return [item if isinstance(item, dict) else {"value": item} for item in data], True
+    if isinstance(data, dict):
+        return [data], False
+    return [{"value": data}], False
+
+
+def enrich_record(record):
+    enriched = record.copy()
+    enriched.update(
+        {
+            "enriched_at": datetime.now().isoformat(),
+            "pipeline_version": "1.0.0",
+            "source_system": "windmill_pipeline",
+            "processing_timestamp": datetime.now().timestamp(),
+        }
+    )
+    return enriched
+
+
 def main(validated_data: dict):
     """
     Enrichissement - métadonnées, source, horodatage
@@ -47,60 +68,53 @@ def main(validated_data: dict):
         )
         print("=" * 60)
 
-        if not isinstance(validated_data, dict):
-            duration_ms = (time.time() - start_time) * 1000
+        record_list, was_list = normalize_records(validated_data)
+
+        if len(record_list) == 0:
+            return {
+                "status": "error",
+                "message": "validated_data is empty",
+                "step": "enrichment",
+            }
+
+        enriched_records = [enrich_record(record) for record in record_list]
+        enriched = enriched_records if was_list else enriched_records[0]
+
+        print(f"📊 Données enrichies avec:")
+        if isinstance(enriched, list):
+            first_record = enriched[0] if enriched else {}
+            print(f"  - records: {len(enriched)}")
+            if first_record:
+                print(f"  - enriched_at: {first_record.get('enriched_at')}")
+                print(f"  - pipeline_version: {first_record.get('pipeline_version')}")
+                print(f"  - source_system: {first_record.get('source_system')}")
+        else:
+            print(f"  - enriched_at: {enriched['enriched_at']}")
+            print(f"  - pipeline_version: {enriched['pipeline_version']}")
+            print(f"  - source_system: {enriched['source_system']}")
+        print("=" * 60)
+
+        duration_ms = (time.time() - start_time) * 1000
+        try:
             client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
             db = client["data_pipeline"]
             db.script_metrics.insert_one(
                 {
                     "script": script_name,
                     "duration_ms": duration_ms,
-                    "status": "error",
-                    "error": "validated_data is not a dict",
+                    "status": "success",
                     "cpu_percent": get_cpu_usage(),
                     "memory_mb": get_memory_mb(),
                     "timestamp": datetime.now().isoformat(),
                 }
             )
-            return {
-                "status": "error",
-                "message": f"validated_data is not a dict: {type(validated_data)}",
-                "step": "enrichment",
-            }
-
-        enriched = validated_data.copy()
-        enriched.update(
-            {
-                "enriched_at": datetime.now().isoformat(),
-                "pipeline_version": "1.0.0",
-                "source_system": "windmill_pipeline",
-                "processing_timestamp": datetime.now().timestamp(),
-            }
-        )
-
-        print(f"📊 Données enrichies avec:")
-        print(f"  - enriched_at: {enriched['enriched_at']}")
-        print(f"  - pipeline_version: {enriched['pipeline_version']}")
-        print(f"  - source_system: {enriched['source_system']}")
-        print("=" * 60)
-
-        duration_ms = (time.time() - start_time) * 1000
-        client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-        db = client["data_pipeline"]
-        db.script_metrics.insert_one(
-            {
-                "script": script_name,
-                "duration_ms": duration_ms,
-                "status": "success",
-                "cpu_percent": get_cpu_usage(),
-                "memory_mb": get_memory_mb(),
-                "timestamp": datetime.now().isoformat(),
-            }
-        )
+        except Exception:
+            pass
 
         return {
             "status": "success",
             "enriched_data": enriched,
+            "record_count": len(enriched_records),
             "duration_ms": round(duration_ms, 2),
             "cpu_percent": get_cpu_usage(),
             "memory_mb": get_memory_mb(),

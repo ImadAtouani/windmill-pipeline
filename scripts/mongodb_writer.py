@@ -29,6 +29,34 @@ def get_memory_mb():
     except:
         return 0
 
+
+def normalize_records(data):
+    if isinstance(data, list):
+        return [item if isinstance(item, dict) else {"data": item} for item in data], True
+    if isinstance(data, dict):
+        return [data], False
+    return [{"data": data}], False
+
+
+def write_document(collection, document):
+    document_to_write = document.copy() if isinstance(document, dict) else {"data": document}
+    document_to_write["written_at"] = datetime.now().isoformat()
+    document_to_write["_collection"] = collection.name
+
+    if "dedup_key" not in document_to_write or not document_to_write["dedup_key"]:
+        import hashlib
+        data_string = json.dumps(document_to_write, sort_keys=True, default=str)
+        unique_string = f"{data_string}_{datetime.now().isoformat()}"
+        document_to_write["dedup_key"] = hashlib.md5(unique_string.encode()).hexdigest()
+
+    existing = collection.find_one({"dedup_key": document_to_write["dedup_key"]})
+    if existing:
+        collection.update_one({"dedup_key": document_to_write["dedup_key"]}, {"$set": document_to_write})
+        return {"inserted_id": str(existing["_id"]), "updated": True, "dedup_key": document_to_write["dedup_key"]}
+
+    result = collection.insert_one(document_to_write)
+    return {"inserted_id": str(result.inserted_id), "updated": False, "dedup_key": document_to_write["dedup_key"]}
+
 def main(
     data: Dict[str, Any],
     collection: Literal["raw_data", "normalized_data", "rejected_data"] = "normalized_data"
@@ -47,57 +75,19 @@ def main(
         print(f"  - Clés de data: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
         print("=" * 60)
         
+        record_list, was_list = normalize_records(data)
+
         client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
         db = client["data_pipeline"]
         coll = db[collection]
-        
-        document = data.copy() if isinstance(data, dict) else {"data": data}
-        document["written_at"] = datetime.now().isoformat()
-        document["_collection"] = collection
-        
-        if "dedup_key" not in document or not document["dedup_key"]:
-            import hashlib
-            data_string = json.dumps(document, sort_keys=True, default=str)
-            unique_string = f"{data_string}_{datetime.now().isoformat()}"
-            document["dedup_key"] = hashlib.md5(unique_string.encode()).hexdigest()
-            print(f"🔑 Nouvelle dedup_key générée: {document['dedup_key']}")
-        
-        existing = coll.find_one({"dedup_key": document["dedup_key"]})
-        if existing:
-            print(f"⚠️ Document avec dedup_key déjà existant: {document['dedup_key']}")
-            print("🔄 Mise à jour du document existant")
-            
-            result = coll.update_one(
-                {"dedup_key": document["dedup_key"]},
-                {"$set": document}
-            )
-            
-            duration_ms = (time.time() - start_time) * 1000
-            db.script_metrics.insert_one({
-                "script": script_name,
-                "duration_ms": duration_ms,
-                "status": "success",
-                "cpu_percent": get_cpu_usage(),
-                "memory_mb": get_memory_mb(),
-                "timestamp": datetime.now().isoformat()
-            })
-            
-            return {
-                "status": "success",
-                "inserted_id": str(existing["_id"]),
-                "collection": collection,
-                "updated": True,
-                "duration_ms": round(duration_ms, 2),
-                "cpu_percent": get_cpu_usage(),
-                "memory_mb": get_memory_mb(),
-                "step": "mongodb_write"
-            }
-        
-        result = coll.insert_one(document)
-        
-        print(f"✅ Données insérées dans '{collection}'")
-        print(f"  - ID: {result.inserted_id}")
-        print(f"  - dedup_key: {document['dedup_key']}")
+
+        results = [write_document(coll, record) for record in record_list]
+        if len(results) == 1:
+            print(f"✅ Données insérées dans '{collection}'")
+            print(f"  - ID: {results[0]['inserted_id']}")
+            print(f"  - dedup_key: {results[0]['dedup_key']}")
+        else:
+            print(f"✅ {len(results)} documents traités dans '{collection}'")
         print("=" * 60)
         
         duration_ms = (time.time() - start_time) * 1000
@@ -112,10 +102,12 @@ def main(
         
         return {
             "status": "success",
-            "inserted_id": str(result.inserted_id),
+            "inserted_id": results[0]["inserted_id"] if results else None,
+            "inserted_ids": [result["inserted_id"] for result in results],
             "collection": collection,
-            "updated": False,
-            "dedup_key": document["dedup_key"],
+            "updated": results[0]["updated"] if results else False,
+            "dedup_key": results[0]["dedup_key"] if results else None,
+            "record_count": len(record_list),
             "duration_ms": round(duration_ms, 2),
             "cpu_percent": get_cpu_usage(),
             "memory_mb": get_memory_mb(),

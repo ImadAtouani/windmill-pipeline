@@ -29,6 +29,25 @@ def get_memory_mb():
     except:
         return 0
 
+
+def normalize_records(data):
+    if isinstance(data, list):
+        return [item if isinstance(item, dict) else {"value": item} for item in data], True
+    if isinstance(data, dict):
+        return [data], False
+    return [{"value": data}], False
+
+
+def dedup_record(record):
+    data_string = str(sorted(record.items()))
+    timestamp = datetime.now().isoformat()
+    unique_string = f"{data_string}_{timestamp}_{id(record)}"
+    dedup_key = hashlib.md5(unique_string.encode()).hexdigest()
+
+    record_with_key = record.copy()
+    record_with_key["dedup_key"] = dedup_key
+    return record_with_key, dedup_key
+
 def main(standardized_data: dict):
     """
     Déduplication - clé métier / hash
@@ -43,34 +62,25 @@ def main(standardized_data: dict):
         print(f"  - Clés: {list(standardized_data.keys()) if isinstance(standardized_data, dict) else 'Not a dict'}")
         print("=" * 60)
         
-        if not isinstance(standardized_data, dict):
-            duration_ms = (time.time() - start_time) * 1000
-            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-            db = client["data_pipeline"]
-            db.script_metrics.insert_one({
-                "script": script_name,
-                "duration_ms": duration_ms,
-                "status": "error",
-                "error": "standardized_data is not a dict",
-                "cpu_percent": get_cpu_usage(),
-                "memory_mb": get_memory_mb(),
-                "timestamp": datetime.now().isoformat()
-            })
+        record_list, was_list = normalize_records(standardized_data)
+
+        if len(record_list) == 0:
             return {
                 "status": "error",
-                "message": f"standardized_data is not a dict: {type(standardized_data)}",
+                "message": "standardized_data is empty",
                 "step": "dedup"
             }
-        
-        data_string = str(sorted(standardized_data.items()))
-        timestamp = datetime.now().isoformat()
-        unique_string = f"{data_string}_{timestamp}_{id(standardized_data)}"
-        dedup_key = hashlib.md5(unique_string.encode()).hexdigest()
-        
-        standardized_data_with_key = standardized_data.copy()
-        standardized_data_with_key["dedup_key"] = dedup_key
-        
-        print(f"🔑 Clé de déduplication générée: {dedup_key}")
+
+        deduplicated_records = []
+        dedup_keys = []
+        for record in record_list:
+            record_with_key, dedup_key = dedup_record(record)
+            deduplicated_records.append(record_with_key)
+            dedup_keys.append(dedup_key)
+
+        standardized_data_with_key = deduplicated_records if was_list else deduplicated_records[0]
+
+        print(f"🔑 Clé de déduplication générée: {dedup_keys[0]}")
         print("=" * 60)
         
         duration_ms = (time.time() - start_time) * 1000
@@ -88,7 +98,8 @@ def main(standardized_data: dict):
         return {
             "status": "success",
             "deduplicated_data": standardized_data_with_key,
-            "dedup_key": dedup_key,
+            "dedup_key": dedup_keys[0],
+            "record_count": len(deduplicated_records),
             "duration_ms": round(duration_ms, 2),
             "cpu_percent": get_cpu_usage(),
             "memory_mb": get_memory_mb(),

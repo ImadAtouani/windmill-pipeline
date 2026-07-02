@@ -5,23 +5,30 @@ value:
     - id: a
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
-          beautifulsoup4==4.15.0
-          bs4==0.0.2
+          beautifulsoup4==4.12.2
           certifi==2026.6.17
           charset-normalizer==3.4.7
           dnspython==2.8.0
+          et-xmlfile==2.0.0
           greenlet==3.5.3
           idna==3.18
-          numpy==2.5.0
-          pandas==3.0.4
-          pymongo==4.17.0
-          python-dateutil==2.9.0.post0
-          requests==2.34.2
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
           six==1.17.0
           soupsieve==2.8.4
-          sqlalchemy==2.0.51
-          typing-extensions==4.15.0
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
+          tzdata==2026.2
           urllib3==2.7.0
         type: rawscript
         content: >-
@@ -64,7 +71,7 @@ value:
                   reader = csv.DictReader(f)
                   for row in reader:
                       data.append(row)
-              return data[0] if data else {}
+              return data
 
           def read_json_file(file_path):
               """Lit un fichier JSON"""
@@ -74,22 +81,44 @@ value:
           def read_xml_file(file_path):
               """Lit un fichier XML"""
               import xml.etree.ElementTree as ET
+
+              def element_to_dict(element):
+                  record = {}
+                  for child in element:
+                      if len(list(child)) > 0:
+                          record[child.tag] = element_to_dict(child)
+                      else:
+                          record[child.tag] = child.text
+                  return record
+
               tree = ET.parse(file_path)
               root = tree.getroot()
-              data = {}
-              for child in root:
-                  data[child.tag] = child.text
-              return data
+              children = list(root)
+
+              if not children:
+                  return {}
+
+              if all(len(list(child)) > 0 for child in children):
+                  return [element_to_dict(child) for child in children]
+
+              if len(children) > 1 and all(len(list(child)) == 0 for child in children):
+                  return [{child.tag: child.text for child in children}]
+
+              first_child = children[0]
+              if len(list(first_child)) > 0:
+                  return [element_to_dict(first_child)]
+
+              return {child.tag: child.text for child in children}
 
           def read_excel_file(file_path):
               """Lit un fichier Excel"""
               df = pd.read_excel(file_path)
-              return df.to_dict('records')[0] if not df.empty else {}
+              return df.to_dict('records') if not df.empty else []
 
           def read_parquet_file(file_path):
               """Lit un fichier Parquet"""
               df = pd.read_parquet(file_path)
-              return df.to_dict('records')[0] if not df.empty else {}
+              return df.to_dict('records') if not df.empty else []
 
           def read_html_file(file_path):
               """Lit un fichier HTML (scraping)"""
@@ -128,7 +157,7 @@ value:
               engine = sa.create_engine(connection_string)
               with engine.connect() as conn:
                   df = pd.read_sql(query, conn)
-              return df.to_dict('records')[0] if not df.empty else {}
+              return df.to_dict('records') if not df.empty else []
 
           def fetch_api_rest(url, method='GET', headers=None, params=None,
           data=None):
@@ -191,8 +220,10 @@ value:
               ext = os.path.splitext(source_path)[1].lower()
               if ext in ['.csv']:
                   return 'csv'
-              if ext in ['.json', '.xml']:
+              if ext in ['.json']:
                   return 'json'
+              if ext in ['.xml']:
+                  return 'xml'
               if ext in ['.xlsx', '.xls']:
                   return 'excel'
               if ext in ['.parquet']:
@@ -472,9 +503,31 @@ value:
     - id: b
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
-          pymongo==4.17.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
+          tzdata==2026.2
+          urllib3==2.7.0
         type: rawscript
         content: >-
           import time
@@ -539,9 +592,9 @@ value:
 
                   # Gestion des différents types de données
                   if isinstance(raw_data, list):
-                      if len(raw_data) > 0 and isinstance(raw_data[0], dict):
-                          data = raw_data[0]
-                          print(f"📊 Liste de {len(raw_data)} éléments, utilisation du premier")
+                      if len(raw_data) > 0 and all(isinstance(item, dict) for item in raw_data):
+                          data = raw_data
+                          print(f"📊 Liste de {len(raw_data)} éléments conservée pour profilage")
                       else:
                           data = {"items": raw_data, "count": len(raw_data)}
                   elif isinstance(raw_data, dict):
@@ -559,10 +612,14 @@ value:
                       null_values = {k: v is None for k, v in data.items()}
                       columns = list(data.keys())
                   elif isinstance(data, list):
-                      column_count = len(data)
-                      data_types = {"list_item_type": type(data[0]).__name__ if data else "empty"}
-                      null_values = {"list_empty": len(data) == 0}
-                      columns = [f"item_{i}" for i in range(min(len(data), 5))]
+                      columns = sorted({key for item in data if isinstance(item, dict) for key in item.keys()})
+                      column_count = len(columns)
+                      data_types = {}
+                      null_values = {}
+                      for column in columns:
+                          first_value = next((item.get(column) for item in data if isinstance(item, dict) and item.get(column) is not None), None)
+                          data_types[column] = type(first_value).__name__ if first_value is not None else "NoneType"
+                          null_values[column] = any(isinstance(item, dict) and item.get(column) is None for item in data)
                   else:
                       column_count = 1
                       data_types = {"value_type": type(data).__name__}
@@ -625,228 +682,8 @@ value:
     - id: c
       value:
         lock: |-
-          # py: 3.12
-          dnspython==2.8.0
-          pymongo==4.17.0
-        type: rawscript
-        content: >-
-          import time
-
-          import json
-
-          import os
-
-          from typing import Literal, Dict, Any
-
-          from datetime import datetime
-
-          from pymongo import MongoClient
-
-
-          def get_cpu_usage():
-              try:
-                  with open('/proc/stat', 'r') as f:
-                      line = f.readline()
-                      parts = line.split()
-                      user = int(parts[1])
-                      nice = int(parts[2])
-                      system = int(parts[3])
-                      idle = int(parts[4])
-                      total = user + nice + system + idle
-                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
-              except:
-                  return 0
-
-          def get_memory_mb():
-              try:
-                  with open('/proc/self/status', 'r') as f:
-                      for line in f:
-                          if line.startswith('VmRSS:'):
-                              kb = int(line.split()[1])
-                              return round(kb / 1024, 2)
-              except:
-                  return 0
-
-          def extract_data_from_html(html_data):
-              """
-              Extrait et formate les données HTML pour les rendre compatibles avec le mapping
-              """
-              result = {}
-              
-              if 'titles' in html_data and html_data['titles']:
-                  result['name'] = html_data['titles'][0]
-              
-              if 'tables' in html_data and html_data['tables']:
-                  table = html_data['tables'][0]
-                  if len(table) > 1:
-                      headers = table[0] if table else []
-                      values = table[1] if len(table) > 1 else []
-                      
-                      for i, header in enumerate(headers):
-                          header_lower = header.lower().strip()
-                          if i < len(values):
-                              value = values[i]
-                              if 'id' in header_lower or 'product' in header_lower:
-                                  result['id'] = value
-                              elif 'name' in header_lower:
-                                  if 'name' not in result:
-                                      result['name'] = value
-                              elif 'price' in header_lower or 'amount' in header_lower:
-                                  clean_price = value.replace('$', '').replace('€', '').replace(',', '').strip()
-                                  result['amount'] = clean_price
-                              elif 'date' in header_lower:
-                                  result['date'] = value
-                              elif 'country' in header_lower or 'origin' in header_lower:
-                                  result['country'] = value
-                              elif 'email' in header_lower or 'contact' in header_lower:
-                                  result['email'] = value
-              
-              if not result and 'paragraphs' in html_data and html_data['paragraphs']:
-                  text = ' '.join(html_data['paragraphs'])
-                  import re
-                  email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
-                  if email_match:
-                      result['email'] = email_match.group()
-                  price_match = re.search(r'\$?(\d+\.?\d*)', text)
-                  if price_match:
-                      result['amount'] = price_match.group(1)
-              
-              if 'name' in result and 'id' not in result:
-                  result['id'] = 'HTML001'
-              
-              if 'email' in result and 'country' not in result:
-                  if '@' in result['email']:
-                      domain = result['email'].split('@')[1].lower()
-                      if 'fr' in domain:
-                          result['country'] = 'FR'
-                      elif 'de' in domain:
-                          result['country'] = 'DE'
-                      elif 'uk' in domain or 'co.uk' in domain:
-                          result['country'] = 'UK'
-                      elif 'ca' in domain:
-                          result['country'] = 'CA'
-                      else:
-                          result['country'] = 'US'
-              
-              if 'date' not in result:
-                  from datetime import datetime
-                  result['date'] = datetime.now().strftime('%Y-%m-%d')
-              
-              if 'email' not in result:
-                  result['email'] = 'no-email@example.com'
-              
-              return result
-
-          def main(raw_data, format: Literal["csv", "excel", "json", "html",
-          "parquet"] = "json"):
-              """
-              Parsing - CSV, Excel, JSON, HTML, Parquet
-              """
-              start_time = time.time()
-              script_name = "parsing"
-              
-              try:
-                  print("=" * 60)
-                  print("📥 Données reçues dans parsing:")
-                  print(f"  - format: {format}")
-                  print(f"  - raw_data type: {type(raw_data)}")
-                  
-                  if isinstance(raw_data, dict):
-                      print(f"  - raw_data keys: {list(raw_data.keys())}")
-                  elif isinstance(raw_data, list):
-                      print(f"  - raw_data length: {len(raw_data)}")
-                      if len(raw_data) > 0:
-                          print(f"  - Premier élément type: {type(raw_data[0])}")
-                  else:
-                      print(f"  - raw_data value: {raw_data}")
-                  print("=" * 60)
-                  
-                  # Gestion des différents types de données
-                  if isinstance(raw_data, list):
-                      if len(raw_data) == 0:
-                          records = {"empty": True, "count": 0}
-                      else:
-                          # Prendre le premier élément de la liste
-                          records = raw_data[0]
-                          print(f"📊 Liste de {len(raw_data)} éléments, utilisation du premier")
-                  elif isinstance(raw_data, dict):
-                      records = raw_data
-                  else:
-                      records = {"value": raw_data}
-                  
-                  # Si c'est du HTML et que les clés caractéristiques sont présentes
-                  if format == 'html' or (isinstance(records, dict) and any(k in records for k in ['titles', 'paragraphs', 'tables'])):
-                      print("🔄 Détection de données HTML, extraction en cours...")
-                      records = extract_data_from_html(records)
-                      print(f"📊 Données extraites: {json.dumps(records, indent=2)}")
-                  
-                  print(f"📊 Records type: {type(records)}")
-                  if isinstance(records, dict):
-                      print(f"📊 Records keys: {list(records.keys())}")
-                  print("=" * 60)
-                  
-                  parsed_data = {
-                      "format": format,
-                      "records": records,
-                      "record_count": len(records) if isinstance(records, (dict, list)) else 1
-                  }
-                  
-                  duration_ms = (time.time() - start_time) * 1000
-                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                  db = client["data_pipeline"]
-                  db.script_metrics.insert_one({
-                      "script": script_name,
-                      "duration_ms": duration_ms,
-                      "status": "success",
-                      "cpu_percent": get_cpu_usage(),
-                      "memory_mb": get_memory_mb(),
-                      "timestamp": datetime.now().isoformat()
-                  })
-                  
-                  return {
-                      "status": "success",
-                      "parsed_data": parsed_data,
-                      "duration_ms": round(duration_ms, 2),
-                      "cpu_percent": get_cpu_usage(),
-                      "memory_mb": get_memory_mb(),
-                      "step": "parsing"
-                  }
-                  
-              except Exception as e:
-                  duration_ms = (time.time() - start_time) * 1000
-                  try:
-                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                      db = client["data_pipeline"]
-                      db.script_metrics.insert_one({
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "error",
-                          "error": str(e)[:100],
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat()
-                      })
-                  except:
-                      pass
-                  return {
-                      "status": "error",
-                      "message": str(e),
-                      "step": "parsing"
-                  }
-        language: python3
-        input_transforms:
-          format:
-            expr: flow_input.format
-            type: javascript
-          raw_data:
-            expr: results.a.raw_payload.data
-            type: javascript
-      summary: Parsing
-    - id: d
-      value:
-        lock: |-
           # workspace-dependencies-mode: manual
-          # workspace-dependencies: default:c236708f7b0a13dd223be74c7c41af31bc083615f8ab040d11365667f1d16791
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
           beautifulsoup4==4.12.2
           certifi==2026.6.17
@@ -867,7 +704,285 @@ value:
           six==1.17.0
           soupsieve==2.8.4
           sqlalchemy==2.0.23
-          typing-extensions==4.15.0
+          typing-extensions==4.16.0
+          tzdata==2026.2
+          urllib3==2.7.0
+        type: rawscript
+        content: >
+          import time
+
+          import json
+
+          import os
+
+          from typing import Literal, Dict, Any
+
+          from datetime import datetime
+
+          from pymongo import MongoClient
+
+
+
+          def get_cpu_usage():
+              try:
+                  with open("/proc/stat", "r") as f:
+                      line = f.readline()
+                      parts = line.split()
+                      user = int(parts[1])
+                      nice = int(parts[2])
+                      system = int(parts[3])
+                      idle = int(parts[4])
+                      total = user + nice + system + idle
+                      return round(((total - idle) / total) * 100, 2) if total > 0 else 0
+              except:
+                  return 0
+
+
+          def get_memory_mb():
+              try:
+                  with open("/proc/self/status", "r") as f:
+                      for line in f:
+                          if line.startswith("VmRSS:"):
+                              kb = int(line.split()[1])
+                              return round(kb / 1024, 2)
+              except:
+                  return 0
+
+
+          def extract_data_from_html(html_data):
+              """
+              Extrait et formate les données HTML pour les rendre compatibles avec le mapping
+              """
+              records = []
+
+              if "tables" in html_data and html_data["tables"]:
+                  table_blob = html_data["tables"]
+
+                  if (
+                      table_blob
+                      and isinstance(table_blob[0], list)
+                      and table_blob[0]
+                      and isinstance(table_blob[0][0], list)
+                  ):
+                      candidate_tables = table_blob
+                  else:
+                      candidate_tables = [table_blob]
+
+                  for table in candidate_tables:
+                      if not table or len(table) < 2:
+                          continue
+
+                      headers = table[0]
+                      for values in table[1:]:
+                          record = {}
+                          for i, header in enumerate(headers):
+                              if i >= len(values):
+                                  continue
+
+                              header_lower = header.lower().strip()
+                              value = values[i]
+
+                              if "id" in header_lower or "product" in header_lower:
+                                  record["id"] = value
+                              elif "name" in header_lower:
+                                  record["name"] = value
+                              elif "price" in header_lower or "amount" in header_lower:
+                                  clean_price = (
+                                      value.replace("$", "")
+                                      .replace("€", "")
+                                      .replace(",", "")
+                                      .strip()
+                                  )
+                                  record["amount"] = clean_price
+                              elif "date" in header_lower:
+                                  record["date"] = value
+                              elif "country" in header_lower or "origin" in header_lower:
+                                  record["country"] = value
+                              elif "email" in header_lower or "contact" in header_lower:
+                                  record["email"] = value
+
+                          if record:
+                              records.append(record)
+
+              if records:
+                  return records
+
+              result = {}
+
+              if "titles" in html_data and html_data["titles"]:
+                  result["title"] = html_data["titles"][0]
+
+              if not result and "paragraphs" in html_data and html_data["paragraphs"]:
+                  text = " ".join(html_data["paragraphs"])
+                  import re
+
+                  email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", text)
+                  if email_match:
+                      result["email"] = email_match.group()
+                  price_match = re.search(r"\$?(\d+\.?\d*)", text)
+                  if price_match:
+                      result["amount"] = price_match.group(1)
+
+              if "email" in result and "country" not in result:
+                  if "@" in result["email"]:
+                      domain = result["email"].split("@")[1].lower()
+                      if "fr" in domain:
+                          result["country"] = "FR"
+                      elif "de" in domain:
+                          result["country"] = "DE"
+                      elif "uk" in domain or "co.uk" in domain:
+                          result["country"] = "UK"
+                      elif "ca" in domain:
+                          result["country"] = "CA"
+                      else:
+                          result["country"] = "US"
+
+              if "date" not in result:
+                  from datetime import datetime
+
+                  result["date"] = datetime.now().strftime("%Y-%m-%d")
+
+              if "email" not in result:
+                  result["email"] = "no-email@example.com"
+
+              return result
+
+
+          def main(raw_data, format: Literal["csv", "excel", "json", "html",
+          "parquet"] = "json"):
+              """
+              Parsing - CSV, Excel, JSON, HTML, Parquet
+              """
+              start_time = time.time()
+              script_name = "parsing"
+
+              try:
+                  print("=" * 60)
+                  print("📥 Données reçues dans parsing:")
+                  print(f"  - format: {format}")
+                  print(f"  - raw_data type: {type(raw_data)}")
+
+                  if isinstance(raw_data, dict):
+                      print(f"  - raw_data keys: {list(raw_data.keys())}")
+                  elif isinstance(raw_data, list):
+                      print(f"  - raw_data length: {len(raw_data)}")
+                      if len(raw_data) > 0:
+                          print(f"  - Premier élément type: {type(raw_data[0])}")
+                  else:
+                      print(f"  - raw_data value: {raw_data}")
+                  print("=" * 60)
+
+                  # Gestion des différents types de données
+                  if isinstance(raw_data, list):
+                      if len(raw_data) == 0:
+                          records = []
+                      else:
+                          records = raw_data
+                          print(f"📊 Liste de {len(raw_data)} éléments conservée")
+                  elif isinstance(raw_data, dict):
+                      records = raw_data
+                  else:
+                      records = {"value": raw_data}
+
+                  # Si c'est du HTML et que les clés caractéristiques sont présentes
+                  if format == "html" or (
+                      isinstance(records, dict)
+                      and any(k in records for k in ["titles", "paragraphs", "tables"])
+                  ):
+                      print("🔄 Détection de données HTML, extraction en cours...")
+                      records = extract_data_from_html(records)
+                      print(f"📊 Données extraites: {json.dumps(records, indent=2)}")
+
+                  print(f"📊 Records type: {type(records)}")
+                  if isinstance(records, dict):
+                      print(f"📊 Records keys: {list(records.keys())}")
+                  elif isinstance(records, list):
+                      print(f"📊 Records length: {len(records)}")
+                  print("=" * 60)
+
+                  parsed_data = {
+                      "format": format,
+                      "records": records,
+                      "record_count": len(records) if isinstance(records, list) else 1,
+                  }
+
+                  duration_ms = (time.time() - start_time) * 1000
+                  client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                  db = client["data_pipeline"]
+                  db.script_metrics.insert_one(
+                      {
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "success",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat(),
+                      }
+                  )
+
+                  return {
+                      "status": "success",
+                      "parsed_data": parsed_data,
+                      "duration_ms": round(duration_ms, 2),
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "step": "parsing",
+                  }
+
+              except Exception as e:
+                  duration_ms = (time.time() - start_time) * 1000
+                  try:
+                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
+                      db = client["data_pipeline"]
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": str(e)[:100],
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
+                  except:
+                      pass
+                  return {"status": "error", "message": str(e), "step": "parsing"}
+        language: python3
+        input_transforms:
+          format:
+            expr: flow_input.format
+            type: javascript
+          raw_data:
+            expr: results.a.raw_payload.data
+            type: javascript
+      summary: Parsing
+    - id: d
+      value:
+        lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
+          # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
+          dnspython==2.8.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
           tzdata==2026.2
           urllib3==2.7.0
         type: rawscript
@@ -907,6 +1022,43 @@ value:
               except:
                   return 0
 
+
+          def normalize_records(records):
+              if isinstance(records, list):
+                  return [record if isinstance(record, dict) else {"value": record} for record in records], True
+              if isinstance(records, dict):
+                  return [records], False
+              return [{"value": records}], False
+
+
+          def map_record(record):
+              mapped = {}
+
+              if "id" in record:
+                  mapped["user_id"] = record["id"]
+              if "name" in record:
+                  mapped["full_name"] = record["name"]
+              if "amount" in record:
+                  mapped["amount"] = record["amount"]
+              elif "price" in record:
+                  mapped["amount"] = record["price"]
+              elif "salary" in record:
+                  mapped["amount"] = record["salary"]
+              if "date" in record:
+                  mapped["transaction_date"] = record["date"]
+              if "email" in record:
+                  mapped["email_address"] = record["email"]
+
+              country_value = record.get("country_code", record.get("country"))
+              if country_value is not None:
+                  mapped["country_code"] = country_value
+
+              for key, value in record.items():
+                  if key not in ["id", "name", "amount", "price", "salary", "date", "email", "country", "country_code"]:
+                      mapped[key] = value
+
+              return mapped
+
           def main(parsed_data: dict):
               """
               Mapping - champs source → modèle cible
@@ -928,23 +1080,15 @@ value:
                       records = parsed_data
                       print(f"✅ Utilisation de parsed_data directement")
 
-                  # Si records est une liste
-                  if isinstance(records, list):
-                      if len(records) == 0:
-                          return {
-                              "status": "error",
-                              "message": "Records list is empty",
-                              "step": "mapping"
-                          }
-                      # Prendre le premier élément de la liste
-                      records = records[0]
-                      print(f"📊 Liste détectée, utilisation du premier élément")
-                  elif not isinstance(records, dict):
-                      # Si ce n'est pas un dict, on le convertit
-                      records = {"value": records}
-                      print(f"📊 Conversion en dictionnaire")
+                  record_list, was_list = normalize_records(records)
+                  if len(record_list) == 0:
+                      return {
+                          "status": "error",
+                          "message": "Records list is empty",
+                          "step": "mapping"
+                      }
 
-                  if not isinstance(records, dict):
+                  if not all(isinstance(record, dict) for record in record_list):
                       duration_ms = (time.time() - start_time) * 1000
                       client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                       db = client["data_pipeline"]
@@ -963,22 +1107,8 @@ value:
                           "step": "mapping"
                       }
 
-                  # Mapping des champs
-                  mapping_rules = {
-                      "id": "user_id",
-                      "name": "full_name",
-                      "amount": "amount",
-                      "date": "transaction_date",
-                      "country": "country_code",
-                      "email": "email_address",
-                  }
-
-                  mapped_data = {}
-                  for source, target in mapping_rules.items():
-                      if source in records:
-                          mapped_data[target] = records[source]
-                      else:
-                          print(f"⚠️ Champ source manquant: {source}")
+                  mapped_records = [map_record(record) for record in record_list]
+                  mapped_data = mapped_records if was_list else mapped_records[0]
 
                   print(f"📊 Données mappées: {json.dumps(mapped_data, indent=2)}")
                   print("=" * 60)
@@ -998,6 +1128,7 @@ value:
                   return {
                       "status": "success",
                       "mapped_data": mapped_data,
+                      "record_count": len(mapped_records),
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
                       "memory_mb": get_memory_mb(),
@@ -1030,9 +1161,31 @@ value:
     - id: e
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
-          pymongo==4.17.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
+          tzdata==2026.2
+          urllib3==2.7.0
         type: rawscript
         content: >-
           import time
@@ -1073,6 +1226,38 @@ value:
                   return 0
 
 
+          def normalize_records(data):
+              if isinstance(data, list):
+                  return [item if isinstance(item, dict) else {"value": item} for item in data], True
+              if isinstance(data, dict):
+                  return [data], False
+              return [{"value": data}], False
+
+
+          def clean_record(mapped_record):
+              cleaned = {}
+              cleaning_stats = {"trimmed": 0, "encoded": 0, "unchanged": 0}
+
+              for key, value in mapped_record.items():
+                  if isinstance(value, str):
+                      trimmed = value.strip()
+                      if trimmed != value:
+                          cleaning_stats["trimmed"] += 1
+
+                      encoded = trimmed.encode("utf-8").decode("utf-8")
+                      if encoded != trimmed:
+                          cleaning_stats["encoded"] += 1
+                      else:
+                          cleaning_stats["unchanged"] += 1
+
+                      cleaned[key] = encoded
+                  else:
+                      cleaned[key] = value
+                      cleaning_stats["unchanged"] += 1
+
+              return cleaned, cleaning_stats
+
+
           def main(mapped_data: dict):
               """
               Nettoyage - trim, encodage, formats
@@ -1089,49 +1274,28 @@ value:
                   )
                   print("=" * 60)
 
-                  if not isinstance(mapped_data, dict):
-                      duration_ms = (time.time() - start_time) * 1000
-                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                      db = client["data_pipeline"]
-                      db.script_metrics.insert_one(
-                          {
-                              "script": script_name,
-                              "duration_ms": duration_ms,
-                              "status": "error",
-                              "error": "mapped_data is not a dict",
-                              "cpu_percent": get_cpu_usage(),
-                              "memory_mb": get_memory_mb(),
-                              "timestamp": datetime.now().isoformat(),
-                          }
-                      )
+                  record_list, was_list = normalize_records(mapped_data)
+
+                  if len(record_list) == 0:
                       return {
                           "status": "error",
-                          "message": f"mapped_data is not a dict: {type(mapped_data)}",
+                          "message": "mapped_data is empty",
                           "step": "cleaning",
                       }
 
                   print(f"📊 Données avant nettoyage: {json.dumps(mapped_data, indent=2)}")
                   print("=" * 60)
 
-                  cleaned = {}
+                  cleaned_records = []
                   cleaning_stats = {"trimmed": 0, "encoded": 0, "unchanged": 0}
 
-                  for key, value in mapped_data.items():
-                      if isinstance(value, str):
-                          trimmed = value.strip()
-                          if trimmed != value:
-                              cleaning_stats["trimmed"] += 1
+                  for record in record_list:
+                      cleaned_record, record_stats = clean_record(record)
+                      cleaned_records.append(cleaned_record)
+                      for stat_key in cleaning_stats:
+                          cleaning_stats[stat_key] += record_stats[stat_key]
 
-                          encoded = trimmed.encode("utf-8").decode("utf-8")
-                          if encoded != trimmed:
-                              cleaning_stats["encoded"] += 1
-                          else:
-                              cleaning_stats["unchanged"] += 1
-
-                          cleaned[key] = encoded
-                      else:
-                          cleaned[key] = value
-                          cleaning_stats["unchanged"] += 1
+                  cleaned = cleaned_records if was_list else cleaned_records[0]
 
                   print(f"📊 Statistiques de nettoyage: {json.dumps(cleaning_stats, indent=2)}")
                   print(f"📊 Données après nettoyage: {json.dumps(cleaned, indent=2)}")
@@ -1154,6 +1318,7 @@ value:
                   return {
                       "status": "success",
                       "cleaned_data": cleaned,
+                      "record_count": len(cleaned_records),
                       "cleaning_stats": cleaning_stats,
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
@@ -1189,9 +1354,31 @@ value:
     - id: f
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
-          pymongo==4.17.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
+          tzdata==2026.2
+          urllib3==2.7.0
         type: rawscript
         content: >-
           import time
@@ -1234,6 +1421,85 @@ value:
                   return 0
 
 
+          def normalize_records(data):
+              if isinstance(data, list):
+                  return [item if isinstance(item, dict) else {"value": item} for item in data], True
+              if isinstance(data, dict):
+                  return [data], False
+              return [{"value": data}], False
+
+
+          def type_record(cleaned_record, date_format):
+              typed_record = {}
+              typing_stats = {
+                  "typed_as_date": 0,
+                  "typed_as_number": 0,
+                  "typed_as_bool": 0,
+                  "typed_as_enum": 0,
+                  "unchanged": 0,
+                  "errors": 0,
+              }
+
+              enum_values = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
+
+              for key, value in cleaned_record.items():
+                  try:
+                      if key in ["date", "transaction_date", "birth_date"] and isinstance(value, str):
+                          try:
+                              typed_record[key] = datetime.strptime(value, date_format).isoformat()
+                              typing_stats["typed_as_date"] += 1
+                          except ValueError:
+                              typed_record[key] = value
+                              typing_stats["unchanged"] += 1
+                      elif key in ["amount", "price", "quantity", "value"]:
+                          if isinstance(value, (int, float)):
+                              typed_record[key] = float(value)
+                              typing_stats["typed_as_number"] += 1
+                          elif isinstance(value, str):
+                              try:
+                                  clean_value = value.replace("€", "").replace("$", "").replace(",", "").strip()
+                                  typed_record[key] = float(clean_value)
+                                  typing_stats["typed_as_number"] += 1
+                              except ValueError:
+                                  typed_record[key] = value
+                                  typing_stats["unchanged"] += 1
+                          else:
+                              typed_record[key] = value
+                              typing_stats["unchanged"] += 1
+                      elif key in ["active", "enabled", "verified", "is_valid"]:
+                          if isinstance(value, bool):
+                              typed_record[key] = bool(value)
+                              typing_stats["typed_as_bool"] += 1
+                          elif isinstance(value, str):
+                              if value.lower() in ["true", "yes", "1"]:
+                                  typed_record[key] = True
+                                  typing_stats["typed_as_bool"] += 1
+                              elif value.lower() in ["false", "no", "0"]:
+                                  typed_record[key] = False
+                                  typing_stats["typed_as_bool"] += 1
+                              else:
+                                  typed_record[key] = value
+                                  typing_stats["unchanged"] += 1
+                          else:
+                              typed_record[key] = value
+                              typing_stats["unchanged"] += 1
+                      elif key in ["country", "country_code", "status"]:
+                          if isinstance(value, str) and value in enum_values:
+                              typed_record[key] = value
+                              typing_stats["typed_as_enum"] += 1
+                          else:
+                              typed_record[key] = value
+                              typing_stats["unchanged"] += 1
+                      else:
+                          typed_record[key] = value
+                          typing_stats["unchanged"] += 1
+                  except Exception:
+                      typing_stats["errors"] += 1
+                      typed_record[key] = value
+
+              return typed_record, typing_stats
+
+
           def main(cleaned_data: Dict[str, Any], date_format: str = "%Y-%m-%d"):
               """
               Typage - date, nombre, booléen, enum
@@ -1251,31 +1517,19 @@ value:
                   print(f"  - date_format: {date_format}")
                   print("=" * 60)
 
-                  if not isinstance(cleaned_data, dict):
-                      duration_ms = (time.time() - start_time) * 1000
-                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                      db = client["data_pipeline"]
-                      db.script_metrics.insert_one(
-                          {
-                              "script": script_name,
-                              "duration_ms": duration_ms,
-                              "status": "error",
-                              "error": "cleaned_data is not a dict",
-                              "cpu_percent": get_cpu_usage(),
-                              "memory_mb": get_memory_mb(),
-                              "timestamp": datetime.now().isoformat(),
-                          }
-                      )
+                  record_list, was_list = normalize_records(cleaned_data)
+
+                  if len(record_list) == 0:
                       return {
                           "status": "error",
-                          "message": f"cleaned_data is not a dict: {type(cleaned_data)}",
+                          "message": "cleaned_data is empty",
                           "step": "typing",
                       }
 
                   print(f"📊 Données avant typage: {json.dumps(cleaned_data, indent=2)}")
                   print("=" * 60)
 
-                  typed_data = {}
+                  typed_records = []
                   typing_stats = {
                       "typed_as_date": 0,
                       "typed_as_number": 0,
@@ -1284,89 +1538,13 @@ value:
                       "unchanged": 0,
                       "errors": 0,
                   }
+                  for record in record_list:
+                      typed_record, record_stats = type_record(record, date_format)
+                      typed_records.append(typed_record)
+                      for stat_key in typing_stats:
+                          typing_stats[stat_key] += record_stats[stat_key]
 
-                  enum_values = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
-
-                  for key, value in cleaned_data.items():
-                      try:
-                          if key in ["date", "transaction_date", "birth_date"] and isinstance(
-                              value, str
-                          ):
-                              try:
-                                  typed_data[key] = datetime.strptime(
-                                      value, date_format
-                                  ).isoformat()
-                                  typing_stats["typed_as_date"] += 1
-                                  print(f"  ✅ {key}: '{value}' → date ({typed_data[key]})")
-                              except ValueError:
-                                  typed_data[key] = value
-                                  typing_stats["unchanged"] += 1
-                                  print(f"  ⚠️ {key}: '{value}' → impossible de typer en date")
-
-                          elif key in ["amount", "price", "quantity", "value"]:
-                              if isinstance(value, (int, float)):
-                                  typed_data[key] = float(value)
-                                  typing_stats["typed_as_number"] += 1
-                                  print(f"  ✅ {key}: {value} → nombre ({typed_data[key]})")
-                              elif isinstance(value, str):
-                                  try:
-                                      clean_value = (
-                                          value.replace("€", "")
-                                          .replace("$", "")
-                                          .replace(",", "")
-                                          .strip()
-                                      )
-                                      typed_data[key] = float(clean_value)
-                                      typing_stats["typed_as_number"] += 1
-                                      print(f"  ✅ {key}: '{value}' → nombre ({typed_data[key]})")
-                                  except ValueError:
-                                      typed_data[key] = value
-                                      typing_stats["unchanged"] += 1
-                                      print(
-                                          f"  ⚠️ {key}: '{value}' → impossible de typer en nombre"
-                                      )
-                              else:
-                                  typed_data[key] = value
-                                  typing_stats["unchanged"] += 1
-
-                          elif key in ["active", "enabled", "verified", "is_valid"]:
-                              if isinstance(value, bool):
-                                  typed_data[key] = bool(value)
-                                  typing_stats["typed_as_bool"] += 1
-                                  print(f"  ✅ {key}: {value} → booléen")
-                              elif isinstance(value, str):
-                                  if value.lower() in ["true", "yes", "1"]:
-                                      typed_data[key] = True
-                                      typing_stats["typed_as_bool"] += 1
-                                      print(f"  ✅ {key}: '{value}' → booléen (True)")
-                                  elif value.lower() in ["false", "no", "0"]:
-                                      typed_data[key] = False
-                                      typing_stats["typed_as_bool"] += 1
-                                      print(f"  ✅ {key}: '{value}' → booléen (False)")
-                                  else:
-                                      typed_data[key] = value
-                                      typing_stats["unchanged"] += 1
-                              else:
-                                  typed_data[key] = value
-                                  typing_stats["unchanged"] += 1
-
-                          elif key in ["country", "country_code", "status"]:
-                              if isinstance(value, str) and value in enum_values:
-                                  typed_data[key] = value
-                                  typing_stats["typed_as_enum"] += 1
-                                  print(f"  ✅ {key}: '{value}' → enum (valeur valide)")
-                              else:
-                                  typed_data[key] = value
-                                  typing_stats["unchanged"] += 1
-
-                          else:
-                              typed_data[key] = value
-                              typing_stats["unchanged"] += 1
-
-                      except Exception as e:
-                          print(f"  ❌ Erreur lors du typage de {key}: {str(e)}")
-                          typing_stats["errors"] += 1
-                          typed_data[key] = value
+                  typed_data = typed_records if was_list else typed_records[0]
 
                   print("=" * 60)
                   print(f"📊 Statistiques de typage: {json.dumps(typing_stats, indent=2)}")
@@ -1390,6 +1568,7 @@ value:
                   return {
                       "status": "success" if typing_stats["errors"] == 0 else "partial",
                       "typed_data": typed_data,
+                      "record_count": len(typed_records),
                       "typing_stats": typing_stats,
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
@@ -1428,9 +1607,31 @@ value:
     - id: g
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
-          pymongo==4.17.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
+          tzdata==2026.2
+          urllib3==2.7.0
         type: rawscript
         content: >-
           import time
@@ -1471,6 +1672,53 @@ value:
                   return 0
 
 
+          def normalize_records(data):
+              if isinstance(data, list):
+                  return [item if isinstance(item, dict) else {"value": item} for item in data], True
+              if isinstance(data, dict):
+                  return [data], False
+              return [{"value": data}], False
+
+
+          def parse_amount(value):
+              if isinstance(value, (int, float)):
+                  return float(value)
+              if isinstance(value, str):
+                  try:
+                      return float(value.replace("€", "").replace("$", "").replace(",", "").strip())
+                  except ValueError:
+                      return None
+              return None
+
+
+          def standardize_record(record, country_mapping):
+              standardized = record.copy()
+              record_stats = {
+                  "countries_normalized": 0,
+                  "currencies_converted": 0,
+                  "units_normalized": 0,
+              }
+
+              country_value = standardized.get("country_code", standardized.get("country"))
+              if isinstance(country_value, str):
+                  country_code = country_value.upper()
+                  if country_code in country_mapping:
+                      standardized["country_code"] = country_code
+                      standardized["country_name"] = country_mapping[country_code]
+                      record_stats["countries_normalized"] += 1
+                  elif "country" in standardized:
+                      standardized["country"] = country_code
+
+              if "amount" in standardized:
+                  amount_numeric = parse_amount(standardized["amount"])
+                  if amount_numeric is not None:
+                      standardized["amount"] = amount_numeric
+                      standardized["amount_usd"] = round(amount_numeric * 1.08, 2)
+                      record_stats["currencies_converted"] += 1
+
+              return standardized, record_stats
+
+
           def main(typed_data: dict):
               """
               Standardisation - noms, unités, devises, pays
@@ -1487,31 +1735,18 @@ value:
                   )
                   print("=" * 60)
 
-                  if not isinstance(typed_data, dict):
-                      duration_ms = (time.time() - start_time) * 1000
-                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                      db = client["data_pipeline"]
-                      db.script_metrics.insert_one(
-                          {
-                              "script": script_name,
-                              "duration_ms": duration_ms,
-                              "status": "error",
-                              "error": "typed_data is not a dict",
-                              "cpu_percent": get_cpu_usage(),
-                              "memory_mb": get_memory_mb(),
-                              "timestamp": datetime.now().isoformat(),
-                          }
-                      )
+                  record_list, was_list = normalize_records(typed_data)
+
+                  if len(record_list) == 0:
                       return {
                           "status": "error",
-                          "message": f"typed_data is not a dict: {type(typed_data)}",
+                          "message": "typed_data is empty",
                           "step": "standardization",
                       }
 
                   print(f"📊 Données avant standardisation: {json.dumps(typed_data, indent=2)}")
                   print("=" * 60)
 
-                  standardized = typed_data.copy()
                   std_stats = {
                       "countries_normalized": 0,
                       "currencies_converted": 0,
@@ -1531,31 +1766,14 @@ value:
                       "AU": "Australia",
                   }
 
-                  if "country" in standardized:
-                      if standardized["country"] in country_mapping:
-                          standardized["country_name"] = country_mapping[standardized["country"]]
-                          std_stats["countries_normalized"] += 1
-                          print(
-                              f"  ✅ country: '{standardized['country']}' → '{standardized['country_name']}'"
-                          )
-                      elif (
-                          "country_code" in standardized
-                          and standardized["country_code"] in country_mapping
-                      ):
-                          standardized["country_name"] = country_mapping[
-                              standardized["country_code"]
-                          ]
-                          std_stats["countries_normalized"] += 1
-                          print(
-                              f"  ✅ country_code: '{standardized['country_code']}' → '{standardized['country_name']}'"
-                          )
+                  standardized_records = []
+                  for record in record_list:
+                      standardized_record, record_stats = standardize_record(record, country_mapping)
+                      standardized_records.append(standardized_record)
+                      for stat_key in std_stats:
+                          std_stats[stat_key] += record_stats[stat_key]
 
-                  if "amount" in standardized:
-                      standardized["amount_usd"] = standardized["amount"] * 1.08
-                      std_stats["currencies_converted"] += 1
-                      print(
-                          f"  ✅ amount: {standardized['amount']} EUR → {standardized['amount_usd']} USD"
-                      )
+                  standardized = standardized_records if was_list else standardized_records[0]
 
                   print("=" * 60)
                   print(f"📊 Statistiques de standardisation: {json.dumps(std_stats, indent=2)}")
@@ -1579,6 +1797,7 @@ value:
                   return {
                       "status": "success",
                       "standardized_data": standardized,
+                      "record_count": len(standardized_records),
                       "standardization_stats": std_stats,
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
@@ -1614,9 +1833,31 @@ value:
     - id: h
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
-          pymongo==4.17.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
+          tzdata==2026.2
+          urllib3==2.7.0
         type: rawscript
         content: "import time\r
 
@@ -1632,11 +1873,13 @@ value:
 
           \r
 
+          \r
+
           def get_cpu_usage():\r
 
           \    try:\r
 
-          \        with open('/proc/stat', 'r') as f:\r
+          \        with open(\"/proc/stat\", \"r\") as f:\r
 
           \            line = f.readline()\r
 
@@ -1661,15 +1904,17 @@ value:
 
           \r
 
+          \r
+
           def get_memory_mb():\r
 
           \    try:\r
 
-          \        with open('/proc/self/status', 'r') as f:\r
+          \        with open(\"/proc/self/status\", \"r\") as f:\r
 
           \            for line in f:\r
 
-          \                if line.startswith('VmRSS:'):\r
+          \                if line.startswith(\"VmRSS:\"):\r
 
           \                    kb = int(line.split()[1])\r
 
@@ -1678,6 +1923,51 @@ value:
           \    except:\r
 
           \        return 0\r
+
+          \r
+
+          \r
+
+          def normalize_records(data):\r
+
+          \    if isinstance(data, list):\r
+
+          \        return [\r
+
+          \            item if isinstance(item, dict) else {\"value\": item} for
+          item in data\r
+
+          \        ], True\r
+
+          \    if isinstance(data, dict):\r
+
+          \        return [data], False\r
+
+          \    return [{\"value\": data}], False\r
+
+          \r
+
+          \r
+
+          def dedup_record(record):\r
+
+          \    data_string = str(sorted(record.items()))\r
+
+          \    timestamp = datetime.now().isoformat()\r
+
+          \    unique_string = f\"{data_string}_{timestamp}_{id(record)}\"\r
+
+          \    dedup_key = hashlib.md5(unique_string.encode()).hexdigest()\r
+
+          \r
+
+          \    record_with_key = record.copy()\r
+
+          \    record_with_key[\"dedup_key\"] = dedup_key\r
+
+          \    return record_with_key, dedup_key\r
+
+          \r
 
           \r
 
@@ -1693,7 +1983,7 @@ value:
 
           \    script_name = \"dedup\"\r
 
-          \    \r
+          \r
 
           \    try:\r
 
@@ -1703,75 +1993,65 @@ value:
 
           \        print(f\"  - Type: {type(standardized_data)}\")\r
 
-          \        print(f\"  - Clés: {list(standardized_data.keys()) if
-          isinstance(standardized_data, dict) else 'Not a dict'}\")\r
+          \        print(\r
+
+          \            f\"  - Clés: {list(standardized_data.keys()) if
+          isinstance(standardized_data, dict) else 'Not a dict'}\"\r
+
+          \        )\r
 
           \        print(\"=\" * 60)\r
 
-          \        \r
+          \r
 
-          \        if not isinstance(standardized_data, dict):\r
+          \        record_list, was_list =
+          normalize_records(standardized_data)\r
 
-          \            duration_ms = (time.time() - start_time) * 1000\r
+          \r
 
-          \            client =
-          MongoClient(\"mongodb://admin:changeme@mongodb:27017/\")\r
-
-          \            db = client[\"data_pipeline\"]\r
-
-          \            db.script_metrics.insert_one({\r
-
-          \                \"script\": script_name,\r
-
-          \                \"duration_ms\": duration_ms,\r
-
-          \                \"status\": \"error\",\r
-
-          \                \"error\": \"standardized_data is not a dict\",\r
-
-          \                \"cpu_percent\": get_cpu_usage(),\r
-
-          \                \"memory_mb\": get_memory_mb(),\r
-
-          \                \"timestamp\": datetime.now().isoformat()\r
-
-          \            })\r
+          \        if len(record_list) == 0:\r
 
           \            return {\r
 
           \                \"status\": \"error\",\r
 
-          \                \"message\": f\"standardized_data is not a dict:
-          {type(standardized_data)}\",\r
+          \                \"message\": \"standardized_data is empty\",\r
 
-          \                \"step\": \"dedup\"\r
+          \                \"step\": \"dedup\",\r
 
           \            }\r
 
-          \        \r
+          \r
 
-          \        data_string = str(sorted(standardized_data.items()))\r
+          \        deduplicated_records = []\r
 
-          \        timestamp = datetime.now().isoformat()\r
+          \        dedup_keys = []\r
 
-          \        unique_string =
-          f\"{data_string}_{timestamp}_{id(standardized_data)}\"\r
+          \        for record in record_list:\r
 
-          \        dedup_key = hashlib.md5(unique_string.encode()).hexdigest()\r
+          \            record_with_key, dedup_key = dedup_record(record)\r
 
-          \        \r
+          \            deduplicated_records.append(record_with_key)\r
 
-          \        standardized_data_with_key = standardized_data.copy()\r
+          \            dedup_keys.append(dedup_key)\r
 
-          \        standardized_data_with_key[\"dedup_key\"] = dedup_key\r
+          \r
 
-          \        \r
+          \        standardized_data_with_key = (\r
 
-          \        print(f\"🔑 Clé de déduplication générée: {dedup_key}\")\r
+          \            deduplicated_records if was_list else
+          deduplicated_records[0]\r
+
+          \        )\r
+
+          \r
+
+          \        print(f\"🔑 Clé de déduplication générée:
+          {dedup_keys[0]}\")\r
 
           \        print(\"=\" * 60)\r
 
-          \        \r
+          \r
 
           \        duration_ms = (time.time() - start_time) * 1000\r
 
@@ -1780,23 +2060,27 @@ value:
 
           \        db = client[\"data_pipeline\"]\r
 
-          \        db.script_metrics.insert_one({\r
+          \        db.script_metrics.insert_one(\r
 
-          \            \"script\": script_name,\r
+          \            {\r
 
-          \            \"duration_ms\": duration_ms,\r
+          \                \"script\": script_name,\r
 
-          \            \"status\": \"success\",\r
+          \                \"duration_ms\": duration_ms,\r
 
-          \            \"cpu_percent\": get_cpu_usage(),\r
+          \                \"status\": \"success\",\r
 
-          \            \"memory_mb\": get_memory_mb(),\r
+          \                \"cpu_percent\": get_cpu_usage(),\r
 
-          \            \"timestamp\": datetime.now().isoformat()\r
+          \                \"memory_mb\": get_memory_mb(),\r
 
-          \        })\r
+          \                \"timestamp\": datetime.now().isoformat(),\r
 
-          \        \r
+          \            }\r
+
+          \        )\r
+
+          \r
 
           \        return {\r
 
@@ -1804,7 +2088,9 @@ value:
 
           \            \"deduplicated_data\": standardized_data_with_key,\r
 
-          \            \"dedup_key\": dedup_key,\r
+          \            \"dedup_key\": dedup_keys[0],\r
+
+          \            \"record_count\": len(deduplicated_records),\r
 
           \            \"duration_ms\": round(duration_ms, 2),\r
 
@@ -1812,11 +2098,11 @@ value:
 
           \            \"memory_mb\": get_memory_mb(),\r
 
-          \            \"step\": \"dedup\"\r
+          \            \"step\": \"dedup\",\r
 
           \        }\r
 
-          \        \r
+          \r
 
           \    except Exception as e:\r
 
@@ -1829,37 +2115,34 @@ value:
 
           \            db = client[\"data_pipeline\"]\r
 
-          \            db.script_metrics.insert_one({\r
+          \            db.script_metrics.insert_one(\r
 
-          \                \"script\": script_name,\r
+          \                {\r
 
-          \                \"duration_ms\": duration_ms,\r
+          \                    \"script\": script_name,\r
 
-          \                \"status\": \"error\",\r
+          \                    \"duration_ms\": duration_ms,\r
 
-          \                \"error\": str(e)[:100],\r
+          \                    \"status\": \"error\",\r
 
-          \                \"cpu_percent\": get_cpu_usage(),\r
+          \                    \"error\": str(e)[:100],\r
 
-          \                \"memory_mb\": get_memory_mb(),\r
+          \                    \"cpu_percent\": get_cpu_usage(),\r
 
-          \                \"timestamp\": datetime.now().isoformat()\r
+          \                    \"memory_mb\": get_memory_mb(),\r
 
-          \            })\r
+          \                    \"timestamp\": datetime.now().isoformat(),\r
+
+          \                }\r
+
+          \            )\r
 
           \        except:\r
 
           \            pass\r
 
-          \        return {\r
-
-          \            \"status\": \"error\",\r
-
-          \            \"message\": str(e),\r
-
-          \            \"step\": \"dedup\"\r
-
-          \        }"
+          \        return {\"status\": \"error\", \"message\": str(e), \"step\":
+          \"dedup\"}\r\n"
         language: python3
         input_transforms:
           standardized_data:
@@ -1869,11 +2152,33 @@ value:
     - id: i
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
-          pymongo==4.17.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
+          tzdata==2026.2
+          urllib3==2.7.0
         type: rawscript
-        content: >-
+        content: >
           import time
 
           import json
@@ -1885,9 +2190,10 @@ value:
           from pymongo import MongoClient
 
 
+
           def get_cpu_usage():
               try:
-                  with open('/proc/stat', 'r') as f:
+                  with open("/proc/stat", "r") as f:
                       line = f.readline()
                       parts = line.split()
                       user = int(parts[1])
@@ -1899,15 +2205,56 @@ value:
               except:
                   return 0
 
+
           def get_memory_mb():
               try:
-                  with open('/proc/self/status', 'r') as f:
+                  with open("/proc/self/status", "r") as f:
                       for line in f:
-                          if line.startswith('VmRSS:'):
+                          if line.startswith("VmRSS:"):
                               kb = int(line.split()[1])
                               return round(kb / 1024, 2)
               except:
                   return 0
+
+
+          def normalize_records(data):
+              if isinstance(data, list):
+                  return [
+                      item if isinstance(item, dict) else {"value": item} for item in data
+                  ], True
+              if isinstance(data, dict):
+                  return [data], False
+              return [{"value": data}], False
+
+
+          def validate_record(record):
+              errors = []
+              warnings = []
+
+              if "user_id" not in record:
+                  errors.append("Missing required field: user_id")
+
+              if "email_address" not in record:
+                  errors.append("Missing required field: email_address")
+
+              if "amount" in record:
+                  if record["amount"] < 0:
+                      errors.append(f"Amount must be positive: {record['amount']}")
+                  elif record["amount"] > 10000:
+                      warnings.append(f"Amount is very high: {record['amount']}")
+
+              if "email_address" in record:
+                  email = record["email_address"]
+                  if "@" not in email or "." not in email:
+                      errors.append(f"Invalid email format: {email}")
+
+              if "country_code" in record:
+                  valid_countries = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
+                  if record["country_code"] not in valid_countries:
+                      warnings.append(f"Unknown country code: {record['country_code']}")
+
+              return errors, warnings
+
 
           def main(deduplicated_data: dict):
               """
@@ -1915,126 +2262,98 @@ value:
               """
               start_time = time.time()
               script_name = "validation"
-              
+
               try:
                   print("=" * 60)
                   print("📥 Données reçues dans validation:")
                   print(f"  - Type: {type(deduplicated_data)}")
-                  print(f"  - Clés: {list(deduplicated_data.keys()) if isinstance(deduplicated_data, dict) else 'Not a dict'}")
+                  print(
+                      f"  - Clés: {list(deduplicated_data.keys()) if isinstance(deduplicated_data, dict) else 'Not a dict'}"
+                  )
                   print("=" * 60)
-                  
-                  if not isinstance(deduplicated_data, dict):
-                      duration_ms = (time.time() - start_time) * 1000
-                      client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                      db = client["data_pipeline"]
-                      db.script_metrics.insert_one({
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "error",
-                          "error": "deduplicated_data is not a dict",
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat()
-                      })
+
+                  record_list, was_list = normalize_records(deduplicated_data)
+
+                  if len(record_list) == 0:
                       return {
                           "status": "error",
-                          "message": f"deduplicated_data is not a dict: {type(deduplicated_data)}",
-                          "step": "validation"
+                          "message": "deduplicated_data is empty",
+                          "step": "validation",
                       }
-                  
-                  errors = []
-                  warnings = []
-                  
-                  if "user_id" not in deduplicated_data:
-                      errors.append("Missing required field: user_id")
-                  else:
-                      print(f"  ✅ user_id présent: {deduplicated_data['user_id']}")
-                  
-                  if "email_address" not in deduplicated_data:
-                      errors.append("Missing required field: email_address")
-                  else:
-                      print(f"  ✅ email_address présent: {deduplicated_data['email_address']}")
-                  
-                  if "amount" in deduplicated_data:
-                      if deduplicated_data["amount"] < 0:
-                          errors.append(f"Amount must be positive: {deduplicated_data['amount']}")
-                      elif deduplicated_data["amount"] > 10000:
-                          warnings.append(f"Amount is very high: {deduplicated_data['amount']}")
-                      else:
-                          print(f"  ✅ amount valide: {deduplicated_data['amount']}")
-                  
-                  if "email_address" in deduplicated_data:
-                      email = deduplicated_data["email_address"]
-                      if "@" not in email or "." not in email:
-                          errors.append(f"Invalid email format: {email}")
-                      else:
-                          print(f"  ✅ email valide: {email}")
-                  
-                  if "country_code" in deduplicated_data:
-                      valid_countries = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
-                      if deduplicated_data["country_code"] not in valid_countries:
-                          warnings.append(f"Unknown country code: {deduplicated_data['country_code']}")
-                      else:
-                          print(f"  ✅ country_code valide: {deduplicated_data['country_code']}")
-                  
-                  is_valid = len(errors) == 0
-                  
+
+                  all_errors = []
+                  all_warnings = []
+                  valid_records = []
+
+                  for record in record_list:
+                      record_errors, record_warnings = validate_record(record)
+                      if not record_errors:
+                          valid_records.append(record)
+                      all_errors.extend(record_errors)
+                      all_warnings.extend(record_warnings)
+
+                  is_valid = len(all_errors) == 0
+                  validated_output = (
+                      valid_records if was_list else (valid_records[0] if valid_records else None)
+                  )
+
                   print("=" * 60)
                   print(f"📊 Résultat de la validation:")
                   print(f"  - Statut: {'✅ VALIDE' if is_valid else '❌ REJETÉ'}")
-                  print(f"  - Erreurs: {len(errors)}")
-                  print(f"  - Avertissements: {len(warnings)}")
-                  if errors:
-                      print(f"  - Détails erreurs: {json.dumps(errors, indent=2)}")
-                  if warnings:
-                      print(f"  - Détails avertissements: {json.dumps(warnings, indent=2)}")
+                  print(f"  - Erreurs: {len(all_errors)}")
+                  print(f"  - Avertissements: {len(all_warnings)}")
+                  if all_errors:
+                      print(f"  - Détails erreurs: {json.dumps(all_errors, indent=2)}")
+                  if all_warnings:
+                      print(f"  - Détails avertissements: {json.dumps(all_warnings, indent=2)}")
                   print("=" * 60)
-                  
+
                   duration_ms = (time.time() - start_time) * 1000
                   client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                   db = client["data_pipeline"]
-                  db.script_metrics.insert_one({
-                      "script": script_name,
-                      "duration_ms": duration_ms,
-                      "status": "success",
-                      "cpu_percent": get_cpu_usage(),
-                      "memory_mb": get_memory_mb(),
-                      "timestamp": datetime.now().isoformat()
-                  })
-                  
+                  db.script_metrics.insert_one(
+                      {
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "success",
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat(),
+                      }
+                  )
+
                   return {
                       "status": "valid" if is_valid else "rejected",
-                      "validated_data": deduplicated_data if is_valid else None,
-                      "errors": errors,
-                      "warnings": warnings,
+                      "validated_data": validated_output if is_valid else None,
+                      "errors": all_errors,
+                      "warnings": all_warnings,
                       "is_valid": is_valid,
+                      "record_count": len(record_list),
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
                       "memory_mb": get_memory_mb(),
-                      "step": "validation"
+                      "step": "validation",
                   }
-                  
+
               except Exception as e:
                   duration_ms = (time.time() - start_time) * 1000
                   try:
                       client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                       db = client["data_pipeline"]
-                      db.script_metrics.insert_one({
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "error",
-                          "error": str(e)[:100],
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat()
-                      })
+                      db.script_metrics.insert_one(
+                          {
+                              "script": script_name,
+                              "duration_ms": duration_ms,
+                              "status": "error",
+                              "error": str(e)[:100],
+                              "cpu_percent": get_cpu_usage(),
+                              "memory_mb": get_memory_mb(),
+                              "timestamp": datetime.now().isoformat(),
+                          }
+                      )
                   except:
                       pass
-                  return {
-                      "status": "error",
-                      "message": str(e),
-                      "step": "validation"
-                  }
+                  return {"status": "error", "message": str(e), "step": "validation"}
         language: python3
         input_transforms:
           deduplicated_data:
@@ -2048,9 +2367,31 @@ value:
           - id: n
             value:
               lock: |-
+                # workspace-dependencies-mode: manual
+                # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
                 # py: 3.12
+                beautifulsoup4==4.12.2
+                certifi==2026.6.17
+                charset-normalizer==3.4.7
                 dnspython==2.8.0
-                pymongo==4.17.0
+                et-xmlfile==2.0.0
+                greenlet==3.5.3
+                idna==3.18
+                numpy==1.26.4
+                openpyxl==3.1.2
+                pandas==2.2.0
+                psycopg2-binary==2.9.9
+                pyarrow==14.0.1
+                pymongo==4.6.1
+                python-dateutil==2.8.2
+                pytz==2026.2
+                requests==2.31.0
+                six==1.17.0
+                soupsieve==2.8.4
+                sqlalchemy==2.0.23
+                typing-extensions==4.16.0
+                tzdata==2026.2
+                urllib3==2.7.0
               type: rawscript
               content: >-
                 import time
@@ -2091,6 +2432,27 @@ value:
                         return 0
 
 
+                def normalize_records(data):
+                    if isinstance(data, list):
+                        return [item if isinstance(item, dict) else {"value": item} for item in data], True
+                    if isinstance(data, dict):
+                        return [data], False
+                    return [{"value": data}], False
+
+
+                def enrich_record(record):
+                    enriched = record.copy()
+                    enriched.update(
+                        {
+                            "enriched_at": datetime.now().isoformat(),
+                            "pipeline_version": "1.0.0",
+                            "source_system": "windmill_pipeline",
+                            "processing_timestamp": datetime.now().timestamp(),
+                        }
+                    )
+                    return enriched
+
+
                 def main(validated_data: dict):
                     """
                     Enrichissement - métadonnées, source, horodatage
@@ -2107,60 +2469,53 @@ value:
                         )
                         print("=" * 60)
 
-                        if not isinstance(validated_data, dict):
-                            duration_ms = (time.time() - start_time) * 1000
+                        record_list, was_list = normalize_records(validated_data)
+
+                        if len(record_list) == 0:
+                            return {
+                                "status": "error",
+                                "message": "validated_data is empty",
+                                "step": "enrichment",
+                            }
+
+                        enriched_records = [enrich_record(record) for record in record_list]
+                        enriched = enriched_records if was_list else enriched_records[0]
+
+                        print(f"📊 Données enrichies avec:")
+                        if isinstance(enriched, list):
+                            first_record = enriched[0] if enriched else {}
+                            print(f"  - records: {len(enriched)}")
+                            if first_record:
+                                print(f"  - enriched_at: {first_record.get('enriched_at')}")
+                                print(f"  - pipeline_version: {first_record.get('pipeline_version')}")
+                                print(f"  - source_system: {first_record.get('source_system')}")
+                        else:
+                            print(f"  - enriched_at: {enriched['enriched_at']}")
+                            print(f"  - pipeline_version: {enriched['pipeline_version']}")
+                            print(f"  - source_system: {enriched['source_system']}")
+                        print("=" * 60)
+
+                        duration_ms = (time.time() - start_time) * 1000
+                        try:
                             client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                             db = client["data_pipeline"]
                             db.script_metrics.insert_one(
                                 {
                                     "script": script_name,
                                     "duration_ms": duration_ms,
-                                    "status": "error",
-                                    "error": "validated_data is not a dict",
+                                    "status": "success",
                                     "cpu_percent": get_cpu_usage(),
                                     "memory_mb": get_memory_mb(),
                                     "timestamp": datetime.now().isoformat(),
                                 }
                             )
-                            return {
-                                "status": "error",
-                                "message": f"validated_data is not a dict: {type(validated_data)}",
-                                "step": "enrichment",
-                            }
-
-                        enriched = validated_data.copy()
-                        enriched.update(
-                            {
-                                "enriched_at": datetime.now().isoformat(),
-                                "pipeline_version": "1.0.0",
-                                "source_system": "windmill_pipeline",
-                                "processing_timestamp": datetime.now().timestamp(),
-                            }
-                        )
-
-                        print(f"📊 Données enrichies avec:")
-                        print(f"  - enriched_at: {enriched['enriched_at']}")
-                        print(f"  - pipeline_version: {enriched['pipeline_version']}")
-                        print(f"  - source_system: {enriched['source_system']}")
-                        print("=" * 60)
-
-                        duration_ms = (time.time() - start_time) * 1000
-                        client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                        db = client["data_pipeline"]
-                        db.script_metrics.insert_one(
-                            {
-                                "script": script_name,
-                                "duration_ms": duration_ms,
-                                "status": "success",
-                                "cpu_percent": get_cpu_usage(),
-                                "memory_mb": get_memory_mb(),
-                                "timestamp": datetime.now().isoformat(),
-                            }
-                        )
+                        except Exception:
+                            pass
 
                         return {
                             "status": "success",
                             "enriched_data": enriched,
+                            "record_count": len(enriched_records),
                             "duration_ms": round(duration_ms, 2),
                             "cpu_percent": get_cpu_usage(),
                             "memory_mb": get_memory_mb(),
@@ -2195,9 +2550,31 @@ value:
           - id: l
             value:
               lock: |-
+                # workspace-dependencies-mode: manual
+                # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
                 # py: 3.12
+                beautifulsoup4==4.12.2
+                certifi==2026.6.17
+                charset-normalizer==3.4.7
                 dnspython==2.8.0
-                pymongo==4.17.0
+                et-xmlfile==2.0.0
+                greenlet==3.5.3
+                idna==3.18
+                numpy==1.26.4
+                openpyxl==3.1.2
+                pandas==2.2.0
+                psycopg2-binary==2.9.9
+                pyarrow==14.0.1
+                pymongo==4.6.1
+                python-dateutil==2.8.2
+                pytz==2026.2
+                requests==2.31.0
+                six==1.17.0
+                soupsieve==2.8.4
+                sqlalchemy==2.0.23
+                typing-extensions==4.16.0
+                tzdata==2026.2
+                urllib3==2.7.0
               type: rawscript
               content: >-
                 import time
@@ -2237,6 +2614,34 @@ value:
                     except:
                         return 0
 
+
+                def normalize_records(data):
+                    if isinstance(data, list):
+                        return [item if isinstance(item, dict) else {"data": item} for item in data], True
+                    if isinstance(data, dict):
+                        return [data], False
+                    return [{"data": data}], False
+
+
+                def write_document(collection, document):
+                    document_to_write = document.copy() if isinstance(document, dict) else {"data": document}
+                    document_to_write["written_at"] = datetime.now().isoformat()
+                    document_to_write["_collection"] = collection.name
+
+                    if "dedup_key" not in document_to_write or not document_to_write["dedup_key"]:
+                        import hashlib
+                        data_string = json.dumps(document_to_write, sort_keys=True, default=str)
+                        unique_string = f"{data_string}_{datetime.now().isoformat()}"
+                        document_to_write["dedup_key"] = hashlib.md5(unique_string.encode()).hexdigest()
+
+                    existing = collection.find_one({"dedup_key": document_to_write["dedup_key"]})
+                    if existing:
+                        collection.update_one({"dedup_key": document_to_write["dedup_key"]}, {"$set": document_to_write})
+                        return {"inserted_id": str(existing["_id"]), "updated": True, "dedup_key": document_to_write["dedup_key"]}
+
+                    result = collection.insert_one(document_to_write)
+                    return {"inserted_id": str(result.inserted_id), "updated": False, "dedup_key": document_to_write["dedup_key"]}
+
                 def main(
                     data: Dict[str, Any],
                     collection: Literal["raw_data", "normalized_data", "rejected_data"] = "normalized_data"
@@ -2255,57 +2660,19 @@ value:
                         print(f"  - Clés de data: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                         print("=" * 60)
                         
+                        record_list, was_list = normalize_records(data)
+
                         client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                         db = client["data_pipeline"]
                         coll = db[collection]
-                        
-                        document = data.copy() if isinstance(data, dict) else {"data": data}
-                        document["written_at"] = datetime.now().isoformat()
-                        document["_collection"] = collection
-                        
-                        if "dedup_key" not in document or not document["dedup_key"]:
-                            import hashlib
-                            data_string = json.dumps(document, sort_keys=True, default=str)
-                            unique_string = f"{data_string}_{datetime.now().isoformat()}"
-                            document["dedup_key"] = hashlib.md5(unique_string.encode()).hexdigest()
-                            print(f"🔑 Nouvelle dedup_key générée: {document['dedup_key']}")
-                        
-                        existing = coll.find_one({"dedup_key": document["dedup_key"]})
-                        if existing:
-                            print(f"⚠️ Document avec dedup_key déjà existant: {document['dedup_key']}")
-                            print("🔄 Mise à jour du document existant")
-                            
-                            result = coll.update_one(
-                                {"dedup_key": document["dedup_key"]},
-                                {"$set": document}
-                            )
-                            
-                            duration_ms = (time.time() - start_time) * 1000
-                            db.script_metrics.insert_one({
-                                "script": script_name,
-                                "duration_ms": duration_ms,
-                                "status": "success",
-                                "cpu_percent": get_cpu_usage(),
-                                "memory_mb": get_memory_mb(),
-                                "timestamp": datetime.now().isoformat()
-                            })
-                            
-                            return {
-                                "status": "success",
-                                "inserted_id": str(existing["_id"]),
-                                "collection": collection,
-                                "updated": True,
-                                "duration_ms": round(duration_ms, 2),
-                                "cpu_percent": get_cpu_usage(),
-                                "memory_mb": get_memory_mb(),
-                                "step": "mongodb_write"
-                            }
-                        
-                        result = coll.insert_one(document)
-                        
-                        print(f"✅ Données insérées dans '{collection}'")
-                        print(f"  - ID: {result.inserted_id}")
-                        print(f"  - dedup_key: {document['dedup_key']}")
+
+                        results = [write_document(coll, record) for record in record_list]
+                        if len(results) == 1:
+                            print(f"✅ Données insérées dans '{collection}'")
+                            print(f"  - ID: {results[0]['inserted_id']}")
+                            print(f"  - dedup_key: {results[0]['dedup_key']}")
+                        else:
+                            print(f"✅ {len(results)} documents traités dans '{collection}'")
                         print("=" * 60)
                         
                         duration_ms = (time.time() - start_time) * 1000
@@ -2320,10 +2687,12 @@ value:
                         
                         return {
                             "status": "success",
-                            "inserted_id": str(result.inserted_id),
+                            "inserted_id": results[0]["inserted_id"] if results else None,
+                            "inserted_ids": [result["inserted_id"] for result in results],
                             "collection": collection,
-                            "updated": False,
-                            "dedup_key": document["dedup_key"],
+                            "updated": results[0]["updated"] if results else False,
+                            "dedup_key": results[0]["dedup_key"] if results else None,
+                            "record_count": len(record_list),
                             "duration_ms": round(duration_ms, 2),
                             "cpu_percent": get_cpu_usage(),
                             "memory_mb": get_memory_mb(),
@@ -2366,9 +2735,31 @@ value:
               - id: m
                 value:
                   lock: |-
+                    # workspace-dependencies-mode: manual
+                    # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
                     # py: 3.12
+                    beautifulsoup4==4.12.2
+                    certifi==2026.6.17
+                    charset-normalizer==3.4.7
                     dnspython==2.8.0
-                    pymongo==4.17.0
+                    et-xmlfile==2.0.0
+                    greenlet==3.5.3
+                    idna==3.18
+                    numpy==1.26.4
+                    openpyxl==3.1.2
+                    pandas==2.2.0
+                    psycopg2-binary==2.9.9
+                    pyarrow==14.0.1
+                    pymongo==4.6.1
+                    python-dateutil==2.8.2
+                    pytz==2026.2
+                    requests==2.31.0
+                    six==1.17.0
+                    soupsieve==2.8.4
+                    sqlalchemy==2.0.23
+                    typing-extensions==4.16.0
+                    tzdata==2026.2
+                    urllib3==2.7.0
                   type: rawscript
                   content: >-
                     import time
@@ -2409,6 +2800,27 @@ value:
                             return 0
 
 
+                    def normalize_records(data):
+                        if isinstance(data, list):
+                            return [item if isinstance(item, dict) else {"value": item} for item in data], True
+                        if isinstance(data, dict):
+                            return [data], False
+                        return [{"value": data}], False
+
+
+                    def enrich_record(record):
+                        enriched = record.copy()
+                        enriched.update(
+                            {
+                                "enriched_at": datetime.now().isoformat(),
+                                "pipeline_version": "1.0.0",
+                                "source_system": "windmill_pipeline",
+                                "processing_timestamp": datetime.now().timestamp(),
+                            }
+                        )
+                        return enriched
+
+
                     def main(validated_data: dict):
                         """
                         Enrichissement - métadonnées, source, horodatage
@@ -2425,60 +2837,53 @@ value:
                             )
                             print("=" * 60)
 
-                            if not isinstance(validated_data, dict):
-                                duration_ms = (time.time() - start_time) * 1000
+                            record_list, was_list = normalize_records(validated_data)
+
+                            if len(record_list) == 0:
+                                return {
+                                    "status": "error",
+                                    "message": "validated_data is empty",
+                                    "step": "enrichment",
+                                }
+
+                            enriched_records = [enrich_record(record) for record in record_list]
+                            enriched = enriched_records if was_list else enriched_records[0]
+
+                            print(f"📊 Données enrichies avec:")
+                            if isinstance(enriched, list):
+                                first_record = enriched[0] if enriched else {}
+                                print(f"  - records: {len(enriched)}")
+                                if first_record:
+                                    print(f"  - enriched_at: {first_record.get('enriched_at')}")
+                                    print(f"  - pipeline_version: {first_record.get('pipeline_version')}")
+                                    print(f"  - source_system: {first_record.get('source_system')}")
+                            else:
+                                print(f"  - enriched_at: {enriched['enriched_at']}")
+                                print(f"  - pipeline_version: {enriched['pipeline_version']}")
+                                print(f"  - source_system: {enriched['source_system']}")
+                            print("=" * 60)
+
+                            duration_ms = (time.time() - start_time) * 1000
+                            try:
                                 client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                                 db = client["data_pipeline"]
                                 db.script_metrics.insert_one(
                                     {
                                         "script": script_name,
                                         "duration_ms": duration_ms,
-                                        "status": "error",
-                                        "error": "validated_data is not a dict",
+                                        "status": "success",
                                         "cpu_percent": get_cpu_usage(),
                                         "memory_mb": get_memory_mb(),
                                         "timestamp": datetime.now().isoformat(),
                                     }
                                 )
-                                return {
-                                    "status": "error",
-                                    "message": f"validated_data is not a dict: {type(validated_data)}",
-                                    "step": "enrichment",
-                                }
-
-                            enriched = validated_data.copy()
-                            enriched.update(
-                                {
-                                    "enriched_at": datetime.now().isoformat(),
-                                    "pipeline_version": "1.0.0",
-                                    "source_system": "windmill_pipeline",
-                                    "processing_timestamp": datetime.now().timestamp(),
-                                }
-                            )
-
-                            print(f"📊 Données enrichies avec:")
-                            print(f"  - enriched_at: {enriched['enriched_at']}")
-                            print(f"  - pipeline_version: {enriched['pipeline_version']}")
-                            print(f"  - source_system: {enriched['source_system']}")
-                            print("=" * 60)
-
-                            duration_ms = (time.time() - start_time) * 1000
-                            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-                            db = client["data_pipeline"]
-                            db.script_metrics.insert_one(
-                                {
-                                    "script": script_name,
-                                    "duration_ms": duration_ms,
-                                    "status": "success",
-                                    "cpu_percent": get_cpu_usage(),
-                                    "memory_mb": get_memory_mb(),
-                                    "timestamp": datetime.now().isoformat(),
-                                }
-                            )
+                            except Exception:
+                                pass
 
                             return {
                                 "status": "success",
                                 "enriched_data": enriched,
+                                "record_count": len(enriched_records),
                                 "duration_ms": round(duration_ms, 2),
                                 "cpu_percent": get_cpu_usage(),
                                 "memory_mb": get_memory_mb(),
@@ -2513,9 +2918,31 @@ value:
               - id: k
                 value:
                   lock: |-
+                    # workspace-dependencies-mode: manual
+                    # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
                     # py: 3.12
+                    beautifulsoup4==4.12.2
+                    certifi==2026.6.17
+                    charset-normalizer==3.4.7
                     dnspython==2.8.0
-                    pymongo==4.17.0
+                    et-xmlfile==2.0.0
+                    greenlet==3.5.3
+                    idna==3.18
+                    numpy==1.26.4
+                    openpyxl==3.1.2
+                    pandas==2.2.0
+                    psycopg2-binary==2.9.9
+                    pyarrow==14.0.1
+                    pymongo==4.6.1
+                    python-dateutil==2.8.2
+                    pytz==2026.2
+                    requests==2.31.0
+                    six==1.17.0
+                    soupsieve==2.8.4
+                    sqlalchemy==2.0.23
+                    typing-extensions==4.16.0
+                    tzdata==2026.2
+                    urllib3==2.7.0
                   type: rawscript
                   content: "import time\r
 
@@ -2580,6 +3007,76 @@ value:
 
                     \r
 
+                    \r
+
+                    def normalize_records(data):\r
+
+                    \    if isinstance(data, list):\r
+
+                    \        return [item if isinstance(item, dict) else
+                    {\"data\": item} for item in data], True\r
+
+                    \    if isinstance(data, dict):\r
+
+                    \        return [data], False\r
+
+                    \    return [{\"data\": data}], False\r
+
+                    \r
+
+                    \r
+
+                    def write_document(collection, document):\r
+
+                    \    document_to_write = document.copy() if
+                    isinstance(document, dict) else {\"data\": document}\r
+
+                    \    document_to_write[\"written_at\"] =
+                    datetime.now().isoformat()\r
+
+                    \    document_to_write[\"_collection\"] = collection.name\r
+
+                    \r
+
+                    \    if \"dedup_key\" not in document_to_write or not
+                    document_to_write[\"dedup_key\"]:\r
+
+                    \        import hashlib\r
+
+                    \        data_string = json.dumps(document_to_write,
+                    sort_keys=True, default=str)\r
+
+                    \        unique_string =
+                    f\"{data_string}_{datetime.now().isoformat()}\"\r
+
+                    \        document_to_write[\"dedup_key\"] =
+                    hashlib.md5(unique_string.encode()).hexdigest()\r
+
+                    \r
+
+                    \    existing = collection.find_one({\"dedup_key\":
+                    document_to_write[\"dedup_key\"]})\r
+
+                    \    if existing:\r
+
+                    \        collection.update_one({\"dedup_key\":
+                    document_to_write[\"dedup_key\"]}, {\"$set\":
+                    document_to_write})\r
+
+                    \        return {\"inserted_id\": str(existing[\"_id\"]),
+                    \"updated\": True, \"dedup_key\":
+                    document_to_write[\"dedup_key\"]}\r
+
+                    \r
+
+                    \    result = collection.insert_one(document_to_write)\r
+
+                    \    return {\"inserted_id\": str(result.inserted_id),
+                    \"updated\": False, \"dedup_key\":
+                    document_to_write[\"dedup_key\"]}\r
+
+                    \r
+
                     def main(\r
 
                     \    data: Dict[str, Any],\r
@@ -2618,6 +3115,10 @@ value:
 
                     \        \r
 
+                    \        record_list, was_list = normalize_records(data)\r
+
+                    \r
+
                     \        client =
                     MongoClient(\"mongodb://admin:changeme@mongodb:27017/\")\r
 
@@ -2625,114 +3126,26 @@ value:
 
                     \        coll = db[collection]\r
 
-                    \        \r
+                    \r
 
-                    \        document = data.copy() if isinstance(data, dict)
-                    else {\"data\": data}\r
+                    \        results = [write_document(coll, record) for record
+                    in record_list]\r
 
-                    \        document[\"written_at\"] =
-                    datetime.now().isoformat()\r
+                    \        if len(results) == 1:\r
 
-                    \        document[\"_collection\"] = collection\r
-
-                    \        \r
-
-                    \        if \"dedup_key\" not in document or not
-                    document[\"dedup_key\"]:\r
-
-                    \            import hashlib\r
-
-                    \            data_string = json.dumps(document,
-                    sort_keys=True, default=str)\r
-
-                    \            unique_string =
-                    f\"{data_string}_{datetime.now().isoformat()}\"\r
-
-                    \            document[\"dedup_key\"] =
-                    hashlib.md5(unique_string.encode()).hexdigest()\r
-
-                    \            print(f\"🔑 Nouvelle dedup_key générée:
-                    {document['dedup_key']}\")\r
-
-                    \        \r
-
-                    \        existing = coll.find_one({\"dedup_key\":
-                    document[\"dedup_key\"]})\r
-
-                    \        if existing:\r
-
-                    \            print(f\"⚠️ Document avec dedup_key déjà
-                    existant: {document['dedup_key']}\")\r
-
-                    \            print(\"🔄 Mise à jour du document
-                    existant\")\r
-
-                    \            \r
-
-                    \            result = coll.update_one(\r
-
-                    \                {\"dedup_key\": document[\"dedup_key\"]},\r
-
-                    \                {\"$set\": document}\r
-
-                    \            )\r
-
-                    \            \r
-
-                    \            duration_ms = (time.time() - start_time) *
-                    1000\r
-
-                    \            db.script_metrics.insert_one({\r
-
-                    \                \"script\": script_name,\r
-
-                    \                \"duration_ms\": duration_ms,\r
-
-                    \                \"status\": \"success\",\r
-
-                    \                \"cpu_percent\": get_cpu_usage(),\r
-
-                    \                \"memory_mb\": get_memory_mb(),\r
-
-                    \                \"timestamp\": datetime.now().isoformat()\r
-
-                    \            })\r
-
-                    \            \r
-
-                    \            return {\r
-
-                    \                \"status\": \"success\",\r
-
-                    \                \"inserted_id\": str(existing[\"_id\"]),\r
-
-                    \                \"collection\": collection,\r
-
-                    \                \"updated\": True,\r
-
-                    \                \"duration_ms\": round(duration_ms, 2),\r
-
-                    \                \"cpu_percent\": get_cpu_usage(),\r
-
-                    \                \"memory_mb\": get_memory_mb(),\r
-
-                    \                \"step\": \"mongodb_write\"\r
-
-                    \            }\r
-
-                    \        \r
-
-                    \        result = coll.insert_one(document)\r
-
-                    \        \r
-
-                    \        print(f\"✅ Données insérées dans
+                    \            print(f\"✅ Données insérées dans
                     '{collection}'\")\r
 
-                    \        print(f\"  - ID: {result.inserted_id}\")\r
+                    \            print(f\"  - ID:
+                    {results[0]['inserted_id']}\")\r
 
-                    \        print(f\"  - dedup_key:
-                    {document['dedup_key']}\")\r
+                    \            print(f\"  - dedup_key:
+                    {results[0]['dedup_key']}\")\r
+
+                    \        else:\r
+
+                    \            print(f\"✅ {len(results)} documents traités
+                    dans '{collection}'\")\r
 
                     \        print(\"=\" * 60)\r
 
@@ -2762,13 +3175,21 @@ value:
 
                     \            \"status\": \"success\",\r
 
-                    \            \"inserted_id\": str(result.inserted_id),\r
+                    \            \"inserted_id\": results[0][\"inserted_id\"] if
+                    results else None,\r
+
+                    \            \"inserted_ids\": [result[\"inserted_id\"] for
+                    result in results],\r
 
                     \            \"collection\": collection,\r
 
-                    \            \"updated\": False,\r
+                    \            \"updated\": results[0][\"updated\"] if results
+                    else False,\r
 
-                    \            \"dedup_key\": document[\"dedup_key\"],\r
+                    \            \"dedup_key\": results[0][\"dedup_key\"] if
+                    results else None,\r
+
+                    \            \"record_count\": len(record_list),\r
 
                     \            \"duration_ms\": round(duration_ms, 2),\r
 
@@ -2840,9 +3261,31 @@ value:
     - id: o
       value:
         lock: |-
+          # workspace-dependencies-mode: manual
+          # workspace-dependencies: default:38397b4a8bdee60b8f90b85df7160b61a65b6eef3837ee3c0a991d141e680782
           # py: 3.12
+          beautifulsoup4==4.12.2
+          certifi==2026.6.17
+          charset-normalizer==3.4.7
           dnspython==2.8.0
-          pymongo==4.17.0
+          et-xmlfile==2.0.0
+          greenlet==3.5.3
+          idna==3.18
+          numpy==1.26.4
+          openpyxl==3.1.2
+          pandas==2.2.0
+          psycopg2-binary==2.9.9
+          pyarrow==14.0.1
+          pymongo==4.6.1
+          python-dateutil==2.8.2
+          pytz==2026.2
+          requests==2.31.0
+          six==1.17.0
+          soupsieve==2.8.4
+          sqlalchemy==2.0.23
+          typing-extensions==4.16.0
+          tzdata==2026.2
+          urllib3==2.7.0
         type: rawscript
         content: >-
           """
@@ -2868,6 +3311,33 @@ value:
 
           OTEL_COLLECTOR_URL = "http://otel_collector:4318/v1/metrics"
 
+
+
+          def count_payload_records(payload):
+              if isinstance(payload, list):
+                  return len(payload)
+              if isinstance(payload, dict):
+                  return 1
+              if payload is None:
+                  return 0
+              return 1
+
+
+          def count_raw_records(db):
+              total = 0
+              for document in db.raw_data.find({}, {"raw_payload.data": 1}):
+                  raw_data = document.get("raw_payload", {}).get("data")
+                  total += count_payload_records(raw_data)
+              return total
+
+
+          def count_raw_records_by_source(db):
+              counts = {}
+              for document in db.raw_data.find({}, {"raw_payload.data": 1, "source_type": 1}):
+                  source_type = document.get("source_type") or "unknown"
+                  raw_data = document.get("raw_payload", {}).get("data")
+                  counts[source_type] = counts.get(source_type, 0) + count_payload_records(raw_data)
+              return counts
 
           def send_metric(name, value, unit="1", description="",
           attributes=None):
@@ -2934,15 +3404,13 @@ value:
                   # ============================================
                   # 1. MÉTRIQUES DE COMPTAGE
                   # ============================================
-                  raw = db.raw_data.count_documents({})
+                  raw = count_raw_records(db)
                   norm = db.normalized_data.count_documents({})
                   rej = db.rejected_data.count_documents({})
                   pending = db.raw_data.count_documents({"status": "pending"})
                   processing = db.raw_data.count_documents({"status": "processing"})
                   
-                  sources = list(db.raw_data.aggregate([
-                      {"$group": {"_id": "$source_type", "count": {"$sum": 1}}}
-                  ]))
+                  sources = count_raw_records_by_source(db)
                   
                   print(f"📊 Métriques de comptage: raw={raw}, normalized={norm}, rejected={rej}")
                   
@@ -2952,9 +3420,8 @@ value:
                   send_metric("pipeline.raw.pending.total", pending, "1", "Pending data", {"status": "pending"})
                   send_metric("pipeline.raw.processing.total", processing, "1", "Processing data", {"status": "processing"})
                   
-                  for source in sources:
-                      source_type = source['_id'] or 'unknown'
-                      send_metric("pipeline.raw.by.source", source["count"], "1", "Data by source", {"source_type": source_type})
+                  for source_type, count in sources.items():
+                      send_metric("pipeline.raw.by.source", count, "1", "Data by source", {"source_type": source_type})
                   
                   # ============================================
                   # 2. MÉTRIQUES DE LATENCE PAR TÂCHE

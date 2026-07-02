@@ -1,11 +1,35 @@
-{
-  "id": "P001",
-  "name": "Laptop Pro",
-  "price": 1299.99,
-  "category": "Electronics",
-  "stock": 45,
-  "supplier": "TechCorp",
-  "date": "2024-06-01",
-  "country": "US",
-  "email": "contact@techcorp.com"
-}
+[
+  {
+    "id": "P001",
+    "name": "Laptop Pro",
+    "price": 1299.99,
+    "category": "Electronics",
+    "stock": 45,
+    "supplier": "TechCorp",
+    "date": "2024-06-01",
+    "country": "US",
+    "email": "contact@techcorp.com"
+  },
+  {
+    "id": "P002",
+    "name": "Wireless Mouse",
+    "price": 29.9,
+    "category": "Electronics",
+    "stock": 180,
+    "supplier": "TechCorp",
+    "date": "2024-06-03",
+    "country": "FR",
+    "email": "support@techcorp.com"
+  },
+  {
+    "id": "P003",
+    "name": "Office Chair",
+    "price": 189.5,
+    "category": "Furniture",
+    "stock": 24,
+    "supplier": "FurniCo",
+    "date": "2024-06-05",
+    "country": "DE",
+    "email": "sales@furnico.com"
+  }
+]

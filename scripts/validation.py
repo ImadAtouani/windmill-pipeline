@@ -28,6 +28,43 @@ def get_memory_mb():
     except:
         return 0
 
+
+def normalize_records(data):
+    if isinstance(data, list):
+        return [item if isinstance(item, dict) else {"value": item} for item in data], True
+    if isinstance(data, dict):
+        return [data], False
+    return [{"value": data}], False
+
+
+def validate_record(record):
+    errors = []
+    warnings = []
+
+    if "user_id" not in record:
+        errors.append("Missing required field: user_id")
+
+    if "email_address" not in record:
+        errors.append("Missing required field: email_address")
+
+    if "amount" in record:
+        if record["amount"] < 0:
+            errors.append(f"Amount must be positive: {record['amount']}")
+        elif record["amount"] > 10000:
+            warnings.append(f"Amount is very high: {record['amount']}")
+
+    if "email_address" in record:
+        email = record["email_address"]
+        if "@" not in email or "." not in email:
+            errors.append(f"Invalid email format: {email}")
+
+    if "country_code" in record:
+        valid_countries = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
+        if record["country_code"] not in valid_countries:
+            warnings.append(f"Unknown country code: {record['country_code']}")
+
+    return errors, warnings
+
 def main(deduplicated_data: dict):
     """
     Validation - règles métier + schéma
@@ -42,71 +79,38 @@ def main(deduplicated_data: dict):
         print(f"  - Clés: {list(deduplicated_data.keys()) if isinstance(deduplicated_data, dict) else 'Not a dict'}")
         print("=" * 60)
         
-        if not isinstance(deduplicated_data, dict):
-            duration_ms = (time.time() - start_time) * 1000
-            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-            db = client["data_pipeline"]
-            db.script_metrics.insert_one({
-                "script": script_name,
-                "duration_ms": duration_ms,
-                "status": "error",
-                "error": "deduplicated_data is not a dict",
-                "cpu_percent": get_cpu_usage(),
-                "memory_mb": get_memory_mb(),
-                "timestamp": datetime.now().isoformat()
-            })
+        record_list, was_list = normalize_records(deduplicated_data)
+
+        if len(record_list) == 0:
             return {
                 "status": "error",
-                "message": f"deduplicated_data is not a dict: {type(deduplicated_data)}",
+                "message": "deduplicated_data is empty",
                 "step": "validation"
             }
-        
-        errors = []
-        warnings = []
-        
-        if "user_id" not in deduplicated_data:
-            errors.append("Missing required field: user_id")
-        else:
-            print(f"  ✅ user_id présent: {deduplicated_data['user_id']}")
-        
-        if "email_address" not in deduplicated_data:
-            errors.append("Missing required field: email_address")
-        else:
-            print(f"  ✅ email_address présent: {deduplicated_data['email_address']}")
-        
-        if "amount" in deduplicated_data:
-            if deduplicated_data["amount"] < 0:
-                errors.append(f"Amount must be positive: {deduplicated_data['amount']}")
-            elif deduplicated_data["amount"] > 10000:
-                warnings.append(f"Amount is very high: {deduplicated_data['amount']}")
-            else:
-                print(f"  ✅ amount valide: {deduplicated_data['amount']}")
-        
-        if "email_address" in deduplicated_data:
-            email = deduplicated_data["email_address"]
-            if "@" not in email or "." not in email:
-                errors.append(f"Invalid email format: {email}")
-            else:
-                print(f"  ✅ email valide: {email}")
-        
-        if "country_code" in deduplicated_data:
-            valid_countries = ["FR", "DE", "US", "UK", "CA", "ES", "IT", "JP", "BR", "AU"]
-            if deduplicated_data["country_code"] not in valid_countries:
-                warnings.append(f"Unknown country code: {deduplicated_data['country_code']}")
-            else:
-                print(f"  ✅ country_code valide: {deduplicated_data['country_code']}")
-        
-        is_valid = len(errors) == 0
+
+        all_errors = []
+        all_warnings = []
+        valid_records = []
+
+        for record in record_list:
+            record_errors, record_warnings = validate_record(record)
+            if not record_errors:
+                valid_records.append(record)
+            all_errors.extend(record_errors)
+            all_warnings.extend(record_warnings)
+
+        is_valid = len(all_errors) == 0
+        validated_output = valid_records if was_list else (valid_records[0] if valid_records else None)
         
         print("=" * 60)
         print(f"📊 Résultat de la validation:")
         print(f"  - Statut: {'✅ VALIDE' if is_valid else '❌ REJETÉ'}")
-        print(f"  - Erreurs: {len(errors)}")
-        print(f"  - Avertissements: {len(warnings)}")
-        if errors:
-            print(f"  - Détails erreurs: {json.dumps(errors, indent=2)}")
-        if warnings:
-            print(f"  - Détails avertissements: {json.dumps(warnings, indent=2)}")
+        print(f"  - Erreurs: {len(all_errors)}")
+        print(f"  - Avertissements: {len(all_warnings)}")
+        if all_errors:
+            print(f"  - Détails erreurs: {json.dumps(all_errors, indent=2)}")
+        if all_warnings:
+            print(f"  - Détails avertissements: {json.dumps(all_warnings, indent=2)}")
         print("=" * 60)
         
         duration_ms = (time.time() - start_time) * 1000
@@ -123,10 +127,11 @@ def main(deduplicated_data: dict):
         
         return {
             "status": "valid" if is_valid else "rejected",
-            "validated_data": deduplicated_data if is_valid else None,
-            "errors": errors,
-            "warnings": warnings,
+            "validated_data": validated_output if is_valid else None,
+            "errors": all_errors,
+            "warnings": all_warnings,
             "is_valid": is_valid,
+            "record_count": len(record_list),
             "duration_ms": round(duration_ms, 2),
             "cpu_percent": get_cpu_usage(),
             "memory_mb": get_memory_mb(),

@@ -1,11 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<employee>
-    <id>E001</id>
-    <name>Marie Dupont</name>
-    <position>Data Engineer</position>
-    <salary>45000.00</salary>
-    <department>IT</department>
-    <hire_date>2023-09-01</hire_date>
-    <country>FR</country>
-    <email>marie.dupont@company.com</email>
-</employee>
+<employees>
+    <employee>
+        <id>E001</id>
+        <name>Marie Dupont</name>
+        <amount>45000.00</amount>
+        <position>Data Engineer</position>
+        <department>IT</department>
+        <hire_date>2023-09-01</hire_date>
+        <country>FR</country>
+        <email>marie.dupont@company.com</email>
+    </employee>
+    <employee>
+        <id>E002</id>
+        <name>Hans Weber</name>
+        <amount>52000.00</amount>
+        <position>Data Analyst</position>
+        <department>Analytics</department>
+        <hire_date>2023-10-12</hire_date>
+        <country>DE</country>
+        <email>hans.weber@company.com</email>
+    </employee>
+    <employee>
+        <id>E003</id>
+        <name>Sarah Miller</name>
+        <amount>61000.00</amount>
+        <position>Product Manager</position>
+        <department>Product</department>
+        <hire_date>2024-01-08</hire_date>
+        <country>US</country>
+        <email>sarah.miller@company.com</email>
+    </employee>
+</employees>

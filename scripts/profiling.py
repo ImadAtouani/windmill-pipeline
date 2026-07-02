@@ -55,9 +55,9 @@ def main(raw_data):
 
         # Gestion des différents types de données
         if isinstance(raw_data, list):
-            if len(raw_data) > 0 and isinstance(raw_data[0], dict):
-                data = raw_data[0]
-                print(f"📊 Liste de {len(raw_data)} éléments, utilisation du premier")
+            if len(raw_data) > 0 and all(isinstance(item, dict) for item in raw_data):
+                data = raw_data
+                print(f"📊 Liste de {len(raw_data)} éléments conservée pour profilage")
             else:
                 data = {"items": raw_data, "count": len(raw_data)}
         elif isinstance(raw_data, dict):
@@ -75,10 +75,14 @@ def main(raw_data):
             null_values = {k: v is None for k, v in data.items()}
             columns = list(data.keys())
         elif isinstance(data, list):
-            column_count = len(data)
-            data_types = {"list_item_type": type(data[0]).__name__ if data else "empty"}
-            null_values = {"list_empty": len(data) == 0}
-            columns = [f"item_{i}" for i in range(min(len(data), 5))]
+            columns = sorted({key for item in data if isinstance(item, dict) for key in item.keys()})
+            column_count = len(columns)
+            data_types = {}
+            null_values = {}
+            for column in columns:
+                first_value = next((item.get(column) for item in data if isinstance(item, dict) and item.get(column) is not None), None)
+                data_types[column] = type(first_value).__name__ if first_value is not None else "NoneType"
+                null_values[column] = any(isinstance(item, dict) and item.get(column) is None for item in data)
         else:
             column_count = 1
             data_types = {"value_type": type(data).__name__}

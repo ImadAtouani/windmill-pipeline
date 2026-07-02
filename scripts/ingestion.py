@@ -22,7 +22,7 @@ def read_csv_file(file_path):
         reader = csv.DictReader(f)
         for row in reader:
             data.append(row)
-    return data[0] if data else {}
+    return data
 
 def read_json_file(file_path):
     """Lit un fichier JSON"""
@@ -32,22 +32,44 @@ def read_json_file(file_path):
 def read_xml_file(file_path):
     """Lit un fichier XML"""
     import xml.etree.ElementTree as ET
+
+    def element_to_dict(element):
+        record = {}
+        for child in element:
+            if len(list(child)) > 0:
+                record[child.tag] = element_to_dict(child)
+            else:
+                record[child.tag] = child.text
+        return record
+
     tree = ET.parse(file_path)
     root = tree.getroot()
-    data = {}
-    for child in root:
-        data[child.tag] = child.text
-    return data
+    children = list(root)
+
+    if not children:
+        return {}
+
+    if all(len(list(child)) > 0 for child in children):
+        return [element_to_dict(child) for child in children]
+
+    if len(children) > 1 and all(len(list(child)) == 0 for child in children):
+        return [{child.tag: child.text for child in children}]
+
+    first_child = children[0]
+    if len(list(first_child)) > 0:
+        return [element_to_dict(first_child)]
+
+    return {child.tag: child.text for child in children}
 
 def read_excel_file(file_path):
     """Lit un fichier Excel"""
     df = pd.read_excel(file_path)
-    return df.to_dict('records')[0] if not df.empty else {}
+    return df.to_dict('records') if not df.empty else []
 
 def read_parquet_file(file_path):
     """Lit un fichier Parquet"""
     df = pd.read_parquet(file_path)
-    return df.to_dict('records')[0] if not df.empty else {}
+    return df.to_dict('records') if not df.empty else []
 
 def read_html_file(file_path):
     """Lit un fichier HTML (scraping)"""
@@ -86,7 +108,7 @@ def read_sql_database(connection_string, query):
     engine = sa.create_engine(connection_string)
     with engine.connect() as conn:
         df = pd.read_sql(query, conn)
-    return df.to_dict('records')[0] if not df.empty else {}
+    return df.to_dict('records') if not df.empty else []
 
 def fetch_api_rest(url, method='GET', headers=None, params=None, data=None):
     """Appelle une API REST"""
@@ -145,8 +167,10 @@ def detect_source_type(source_type, source_path):
     ext = os.path.splitext(source_path)[1].lower()
     if ext in ['.csv']:
         return 'csv'
-    if ext in ['.json', '.xml']:
+    if ext in ['.json']:
         return 'json'
+    if ext in ['.xml']:
+        return 'xml'
     if ext in ['.xlsx', '.xls']:
         return 'excel'
     if ext in ['.parquet']:

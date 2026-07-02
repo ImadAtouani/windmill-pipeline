@@ -31,6 +31,38 @@ def get_memory_mb():
         return 0
 
 
+def normalize_records(data):
+    if isinstance(data, list):
+        return [item if isinstance(item, dict) else {"value": item} for item in data], True
+    if isinstance(data, dict):
+        return [data], False
+    return [{"value": data}], False
+
+
+def clean_record(mapped_record):
+    cleaned = {}
+    cleaning_stats = {"trimmed": 0, "encoded": 0, "unchanged": 0}
+
+    for key, value in mapped_record.items():
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if trimmed != value:
+                cleaning_stats["trimmed"] += 1
+
+            encoded = trimmed.encode("utf-8").decode("utf-8")
+            if encoded != trimmed:
+                cleaning_stats["encoded"] += 1
+            else:
+                cleaning_stats["unchanged"] += 1
+
+            cleaned[key] = encoded
+        else:
+            cleaned[key] = value
+            cleaning_stats["unchanged"] += 1
+
+    return cleaned, cleaning_stats
+
+
 def main(mapped_data: dict):
     """
     Nettoyage - trim, encodage, formats
@@ -47,49 +79,28 @@ def main(mapped_data: dict):
         )
         print("=" * 60)
 
-        if not isinstance(mapped_data, dict):
-            duration_ms = (time.time() - start_time) * 1000
-            client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
-            db = client["data_pipeline"]
-            db.script_metrics.insert_one(
-                {
-                    "script": script_name,
-                    "duration_ms": duration_ms,
-                    "status": "error",
-                    "error": "mapped_data is not a dict",
-                    "cpu_percent": get_cpu_usage(),
-                    "memory_mb": get_memory_mb(),
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
+        record_list, was_list = normalize_records(mapped_data)
+
+        if len(record_list) == 0:
             return {
                 "status": "error",
-                "message": f"mapped_data is not a dict: {type(mapped_data)}",
+                "message": "mapped_data is empty",
                 "step": "cleaning",
             }
 
         print(f"📊 Données avant nettoyage: {json.dumps(mapped_data, indent=2)}")
         print("=" * 60)
 
-        cleaned = {}
+        cleaned_records = []
         cleaning_stats = {"trimmed": 0, "encoded": 0, "unchanged": 0}
 
-        for key, value in mapped_data.items():
-            if isinstance(value, str):
-                trimmed = value.strip()
-                if trimmed != value:
-                    cleaning_stats["trimmed"] += 1
+        for record in record_list:
+            cleaned_record, record_stats = clean_record(record)
+            cleaned_records.append(cleaned_record)
+            for stat_key in cleaning_stats:
+                cleaning_stats[stat_key] += record_stats[stat_key]
 
-                encoded = trimmed.encode("utf-8").decode("utf-8")
-                if encoded != trimmed:
-                    cleaning_stats["encoded"] += 1
-                else:
-                    cleaning_stats["unchanged"] += 1
-
-                cleaned[key] = encoded
-            else:
-                cleaned[key] = value
-                cleaning_stats["unchanged"] += 1
+        cleaned = cleaned_records if was_list else cleaned_records[0]
 
         print(f"📊 Statistiques de nettoyage: {json.dumps(cleaning_stats, indent=2)}")
         print(f"📊 Données après nettoyage: {json.dumps(cleaned, indent=2)}")
@@ -112,6 +123,7 @@ def main(mapped_data: dict):
         return {
             "status": "success",
             "cleaned_data": cleaned,
+            "record_count": len(cleaned_records),
             "cleaning_stats": cleaning_stats,
             "duration_ms": round(duration_ms, 2),
             "cpu_percent": get_cpu_usage(),

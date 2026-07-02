@@ -6,6 +6,6 @@
   "stock": 45,
   "supplier": "TechCorp",
   "date": "2024-06-01",
-  "country_code": "US",
+  "country": "US",
   "email": "contact@techcorp.com"
 }

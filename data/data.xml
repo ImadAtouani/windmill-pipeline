@@ -6,6 +6,6 @@
     <salary>45000.00</salary>
     <department>IT</department>
     <hire_date>2023-09-01</hire_date>
-    <country_code>FR</country_code>
+    <country>FR</country>
     <email>marie.dupont@company.com</email>
 </employee>

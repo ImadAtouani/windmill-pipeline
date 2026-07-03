@@ -20,7 +20,7 @@
     },
     {
       "id": 2,
-      "title": "Données brutes (cumulées)",
+      "title": "Données brutes",
       "type": "stat",
       "gridPos": {"h": 3, "w": 8, "x": 0, "y": 1},
       "targets": [{"expr": "windmill_pipeline_raw_data_total_ratio", "refId": "A", "legendFormat": "Brutes"}],
@@ -35,7 +35,7 @@
     },
     {
       "id": 3,
-      "title": "Données normalisées (cumulées)",
+      "title": "Données normalisées",
       "type": "stat",
       "gridPos": {"h": 3, "w": 8, "x": 8, "y": 1},
       "targets": [{"expr": "windmill_pipeline_normalized_data_total_ratio", "refId": "A", "legendFormat": "Normalisées"}],
@@ -50,7 +50,7 @@
     },
     {
       "id": 4,
-      "title": "Données rejetées (cumulées)",
+      "title": "Données rejetées",
       "type": "stat",
       "gridPos": {"h": 3, "w": 8, "x": 16, "y": 1},
       "targets": [{"expr": "windmill_pipeline_rejected_data_total_ratio", "refId": "A", "legendFormat": "Rejetées"}],
@@ -65,7 +65,7 @@
     },
     {
       "id": 7,
-      "title": "📈 Évolution des données (cumulées)",
+      "title": "📈 Évolution des données",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
       "targets": [
@@ -206,7 +206,7 @@
     },
     {
       "id": 15,
-      "title": "📊 Statistiques des données (cumulées)",
+      "title": "📊 Statistiques des données",
       "type": "table",
       "gridPos": {"h": 6, "w": 24, "x": 0, "y": 34},
       "targets": [

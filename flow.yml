@@ -2178,7 +2178,7 @@ value:
           tzdata==2026.2
           urllib3==2.7.0
         type: rawscript
-        content: >
+        content: >-
           import time
 
           import json
@@ -2190,10 +2190,9 @@ value:
           from pymongo import MongoClient
 
 
-
           def get_cpu_usage():
               try:
-                  with open("/proc/stat", "r") as f:
+                  with open('/proc/stat', 'r') as f:
                       line = f.readline()
                       parts = line.split()
                       user = int(parts[1])
@@ -2205,12 +2204,11 @@ value:
               except:
                   return 0
 
-
           def get_memory_mb():
               try:
-                  with open("/proc/self/status", "r") as f:
+                  with open('/proc/self/status', 'r') as f:
                       for line in f:
-                          if line.startswith("VmRSS:"):
+                          if line.startswith('VmRSS:'):
                               kb = int(line.split()[1])
                               return round(kb / 1024, 2)
               except:
@@ -2219,9 +2217,7 @@ value:
 
           def normalize_records(data):
               if isinstance(data, list):
-                  return [
-                      item if isinstance(item, dict) else {"value": item} for item in data
-                  ], True
+                  return [item if isinstance(item, dict) else {"value": item} for item in data], True
               if isinstance(data, dict):
                   return [data], False
               return [{"value": data}], False
@@ -2255,48 +2251,47 @@ value:
 
               return errors, warnings
 
-
           def main(deduplicated_data: dict):
               """
               Validation - règles métier + schéma
               """
               start_time = time.time()
               script_name = "validation"
-
+              
               try:
                   print("=" * 60)
                   print("📥 Données reçues dans validation:")
                   print(f"  - Type: {type(deduplicated_data)}")
-                  print(
-                      f"  - Clés: {list(deduplicated_data.keys()) if isinstance(deduplicated_data, dict) else 'Not a dict'}"
-                  )
+                  print(f"  - Clés: {list(deduplicated_data.keys()) if isinstance(deduplicated_data, dict) else 'Not a dict'}")
                   print("=" * 60)
-
+                  
                   record_list, was_list = normalize_records(deduplicated_data)
 
                   if len(record_list) == 0:
                       return {
                           "status": "error",
                           "message": "deduplicated_data is empty",
-                          "step": "validation",
+                          "step": "validation"
                       }
 
                   all_errors = []
                   all_warnings = []
                   valid_records = []
+                  rejected_records = []
 
                   for record in record_list:
                       record_errors, record_warnings = validate_record(record)
                       if not record_errors:
                           valid_records.append(record)
+                      else:
+                          rejected_records.append(record)
                       all_errors.extend(record_errors)
                       all_warnings.extend(record_warnings)
 
                   is_valid = len(all_errors) == 0
-                  validated_output = (
-                      valid_records if was_list else (valid_records[0] if valid_records else None)
-                  )
-
+                  validated_output = valid_records if was_list else (valid_records[0] if valid_records else None)
+                  rejected_output = rejected_records if was_list else (rejected_records[0] if rejected_records else None)
+                  
                   print("=" * 60)
                   print(f"📊 Résultat de la validation:")
                   print(f"  - Statut: {'✅ VALIDE' if is_valid else '❌ REJETÉ'}")
@@ -2307,24 +2302,23 @@ value:
                   if all_warnings:
                       print(f"  - Détails avertissements: {json.dumps(all_warnings, indent=2)}")
                   print("=" * 60)
-
+                  
                   duration_ms = (time.time() - start_time) * 1000
                   client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                   db = client["data_pipeline"]
-                  db.script_metrics.insert_one(
-                      {
-                          "script": script_name,
-                          "duration_ms": duration_ms,
-                          "status": "success",
-                          "cpu_percent": get_cpu_usage(),
-                          "memory_mb": get_memory_mb(),
-                          "timestamp": datetime.now().isoformat(),
-                      }
-                  )
-
+                  db.script_metrics.insert_one({
+                      "script": script_name,
+                      "duration_ms": duration_ms,
+                      "status": "success",
+                      "cpu_percent": get_cpu_usage(),
+                      "memory_mb": get_memory_mb(),
+                      "timestamp": datetime.now().isoformat()
+                  })
+                  
                   return {
                       "status": "valid" if is_valid else "rejected",
                       "validated_data": validated_output if is_valid else None,
+                      "rejected_data": rejected_output,
                       "errors": all_errors,
                       "warnings": all_warnings,
                       "is_valid": is_valid,
@@ -2332,28 +2326,30 @@ value:
                       "duration_ms": round(duration_ms, 2),
                       "cpu_percent": get_cpu_usage(),
                       "memory_mb": get_memory_mb(),
-                      "step": "validation",
+                      "step": "validation"
                   }
-
+                  
               except Exception as e:
                   duration_ms = (time.time() - start_time) * 1000
                   try:
                       client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                       db = client["data_pipeline"]
-                      db.script_metrics.insert_one(
-                          {
-                              "script": script_name,
-                              "duration_ms": duration_ms,
-                              "status": "error",
-                              "error": str(e)[:100],
-                              "cpu_percent": get_cpu_usage(),
-                              "memory_mb": get_memory_mb(),
-                              "timestamp": datetime.now().isoformat(),
-                          }
-                      )
+                      db.script_metrics.insert_one({
+                          "script": script_name,
+                          "duration_ms": duration_ms,
+                          "status": "error",
+                          "error": str(e)[:100],
+                          "cpu_percent": get_cpu_usage(),
+                          "memory_mb": get_memory_mb(),
+                          "timestamp": datetime.now().isoformat()
+                      })
                   except:
                       pass
-                  return {"status": "error", "message": str(e), "step": "validation"}
+                  return {
+                      "status": "error",
+                      "message": str(e),
+                      "step": "validation"
+                  }
         language: python3
         input_transforms:
           deduplicated_data:
@@ -2432,12 +2428,101 @@ value:
                         return 0
 
 
-                def normalize_records(data):
+                _RECORD_LIST_KEYS = [
+                    "rejected_data",
+                    "validated_data",
+                    "standardized_data",
+                    "deduplicated_data",
+                    "cleaned_data",
+                    "typed_data",
+                    "mapped_data",
+                    "parsed_data",
+                    "enriched_data",
+                    "records",
+                    "data",
+                ]
+
+
+
+                def _maybe_parse_json(data):
+                    """If data is a JSON-encoded string/bytes, parse it. Otherwise return as-is."""
+                    if data is None:
+                        return None
+                        
+                    if isinstance(data, bytes):
+                        try:
+                            data = data.decode("utf-8")
+                        except Exception:
+                            return data
+
+                    if isinstance(data, str):
+                        stripped = data.strip()
+                        if stripped[:1] in ("{", "["):
+                            try:
+                                return json.loads(stripped)
+                            except (json.JSONDecodeError, ValueError):
+                                return data
+
+                    return data
+
+
+                def _find_record_list(data, depth=0, max_depth=4):
+                    """Recursively search a (possibly nested) dict for a known record-list key."""
+                    if not isinstance(data, dict) or depth > max_depth:
+                        return None
+
+                    # 1) Direct match at this level.
+                    for key in _RECORD_LIST_KEYS:
+                        value = data.get(key)
+                        if isinstance(value, list) and value:
+                            return value
+                        if isinstance(value, dict) and key in ("data", "records"):
+                            return [value]
+
+                    # 2) Recurse into nested dict values
+                    for value in data.values():
+                        if isinstance(value, dict):
+                            found = _find_record_list(value, depth + 1, max_depth)
+                            if found is not None:
+                                return found
+
+                    return None
+
+
+                def extract_records(data):
+                    """Extract a batch of records from common wrapper shapes."""
+                    if data is None:
+                        return []
+                        
+                    data = _maybe_parse_json(data)
+                    
+                    if data is None:
+                        return []
+
                     if isinstance(data, list):
-                        return [item if isinstance(item, dict) else {"data": item} for item in data], True
+                        return data
+
                     if isinstance(data, dict):
-                        return [data], False
-                    return [{"data": data}], False
+                        found = _find_record_list(data)
+                        if found is not None:
+                            return found
+                        
+                        # Si c'est un dictionnaire qui pourrait être un seul enregistrement
+                        # mais éviter les métadonnées de table
+                        table_keys = ["table_name", "table_schema", "table_catalog", "table_type"]
+                        if any(key in data for key in table_keys):
+                            return []
+                            
+                        return [data]
+
+                    return [{"value": data}]
+
+
+                def normalize_records(data):
+                    records = extract_records(data)
+                    if not records:
+                        return [], False
+                    return [item if isinstance(item, dict) else {"data": item} for item in records], isinstance(records, list)
 
 
                 def write_document(collection, document):
@@ -2460,7 +2545,7 @@ value:
                     return {"inserted_id": str(result.inserted_id), "updated": False, "dedup_key": document_to_write["dedup_key"]}
 
                 def main(
-                    data: Dict[str, Any],
+                    data: Dict[str, Any] = None,
                     collection: Literal["raw_data", "normalized_data", "rejected_data"] = "normalized_data"
                 ):
                     """
@@ -2474,23 +2559,72 @@ value:
                         print("📥 Données reçues dans mongodb_writer:")
                         print(f"  - collection: {collection}")
                         print(f"  - Type de data: {type(data)}")
+                        
+                        # Vérifier si data est None
+                        if data is None:
+                            print("❌ ERREUR: data est None!")
+                            print("=" * 60)
+                            return {
+                                "status": "error",
+                                "message": "data is None - no data received from previous step",
+                                "step": "mongodb_write"
+                            }
+                            
                         print(f"  - Clés de data: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                        
+                        # Afficher le contenu des clés importantes
+                        if isinstance(data, dict):
+                            for key in ["rejected_data", "validated_data", "data", "records"]:
+                                if key in data:
+                                    value = data[key]
+                                    print(f"  - {key}: type={type(value)}")
+                                    if isinstance(value, list):
+                                        print(f"    - length={len(value)}")
+                                        if len(value) > 0:
+                                            print(f"    - first item type={type(value[0])}")
                         print("=" * 60)
                         
+                        # Extraire les records
                         record_list, was_list = normalize_records(data)
+                        
+                        # Si record_list est vide, essayer des approches alternatives
+                        if len(record_list) == 0 and isinstance(data, dict):
+                            # Cas spécial: les données pourraient être directement dans rejected_data
+                            for key in ["rejected_data", "validated_data"]:
+                                if key in data and isinstance(data[key], list) and data[key]:
+                                    record_list = data[key]
+                                    was_list = True
+                                    print(f"✅ Utilisation directe de {key}: {len(record_list)} enregistrements")
+                                    break
+                        
+                        if len(record_list) == 0:
+                            print("❌ Aucun enregistrement à écrire")
+                            return {
+                                "status": "error",
+                                "message": "No records to write - could not extract data from input",
+                                "step": "mongodb_write"
+                            }
+
+                        print(f"📊 {len(record_list)} enregistrements à écrire dans {collection}")
+                        print("=" * 60)
 
                         client = MongoClient("mongodb://admin:changeme@mongodb:27017/")
                         db = client["data_pipeline"]
                         coll = db[collection]
 
-                        results = [write_document(coll, record) for record in record_list]
-                        if len(results) == 1:
-                            print(f"✅ Données insérées dans '{collection}'")
-                            print(f"  - ID: {results[0]['inserted_id']}")
-                            print(f"  - dedup_key: {results[0]['dedup_key']}")
-                        else:
-                            print(f"✅ {len(results)} documents traités dans '{collection}'")
+                        # Écrire tous les documents
+                        results = []
+                        for i, record in enumerate(record_list):
+                            try:
+                                result = write_document(coll, record)
+                                results.append(result)
+                                print(f"  ✅ Document {i+1}/{len(record_list)} écrit - ID: {result['inserted_id']}")
+                            except Exception as e:
+                                print(f"  ❌ Erreur document {i+1}: {e}")
+                                results.append({"error": str(e)})
+                        
                         print("=" * 60)
+                        print(f"✅ {len([r for r in results if 'error' not in r])} documents écrits avec succès")
                         
                         duration_ms = (time.time() - start_time) * 1000
                         db.script_metrics.insert_one({
@@ -2504,12 +2638,10 @@ value:
                         
                         return {
                             "status": "success",
-                            "inserted_id": results[0]["inserted_id"] if results else None,
-                            "inserted_ids": [result["inserted_id"] for result in results],
+                            "inserted_ids": [r.get("inserted_id") for r in results if "error" not in r],
                             "collection": collection,
-                            "updated": results[0]["updated"] if results else False,
-                            "dedup_key": results[0]["dedup_key"] if results else None,
                             "record_count": len(record_list),
+                            "written_count": len([r for r in results if "error" not in r]),
                             "duration_ms": round(duration_ms, 2),
                             "cpu_percent": get_cpu_usage(),
                             "memory_mb": get_memory_mb(),
@@ -2540,7 +2672,7 @@ value:
               language: python3
               input_transforms:
                 data:
-                  expr: results.i.validated_data
+                  expr: results.i.rejected_data
                   type: javascript
                 collection:
                   type: static
@@ -2826,18 +2958,201 @@ value:
 
                     \r
 
-                    def normalize_records(data):\r
+                    _RECORD_LIST_KEYS = [\r
+
+                    \    \"rejected_data\",\r
+
+                    \    \"validated_data\",\r
+
+                    \    \"standardized_data\",\r
+
+                    \    \"deduplicated_data\",\r
+
+                    \    \"cleaned_data\",\r
+
+                    \    \"typed_data\",\r
+
+                    \    \"mapped_data\",\r
+
+                    \    \"parsed_data\",\r
+
+                    \    \"enriched_data\",\r
+
+                    \    \"records\",\r
+
+                    \    \"data\",\r
+
+                    ]\r
+
+                    \r
+
+                    \r
+
+                    def _maybe_parse_json(data):\r
+
+                    \    \"\"\"If data is a JSON-encoded string/bytes, parse it.
+                    Otherwise return as-is.\"\"\"\r
+
+                    \    if data is None:\r
+
+                    \        return None\r
+
+                    \        \r
+
+                    \    if isinstance(data, bytes):\r
+
+                    \        try:\r
+
+                    \            data = data.decode(\"utf-8\")\r
+
+                    \        except Exception:\r
+
+                    \            return data\r
+
+                    \r
+
+                    \    if isinstance(data, str):\r
+
+                    \        stripped = data.strip()\r
+
+                    \        if stripped[:1] in (\"{\", \"[\"):\r
+
+                    \            try:\r
+
+                    \                return json.loads(stripped)\r
+
+                    \            except (json.JSONDecodeError, ValueError):\r
+
+                    \                return data\r
+
+                    \r
+
+                    \    return data\r
+
+                    \r
+
+                    \r
+
+                    def _find_record_list(data, depth=0, max_depth=4):\r
+
+                    \    \"\"\"Recursively search a (possibly nested) dict for a
+                    known record-list key.\"\"\"\r
+
+                    \    if not isinstance(data, dict) or depth > max_depth:\r
+
+                    \        return None\r
+
+                    \r
+
+                    \    # 1) Direct match at this level.\r
+
+                    \    for key in _RECORD_LIST_KEYS:\r
+
+                    \        value = data.get(key)\r
+
+                    \        if isinstance(value, list) and value:\r
+
+                    \            return value\r
+
+                    \        if isinstance(value, dict) and key in (\"data\",
+                    \"records\"):\r
+
+                    \            return [value]\r
+
+                    \r
+
+                    \    # 2) Recurse into nested dict values\r
+
+                    \    for value in data.values():\r
+
+                    \        if isinstance(value, dict):\r
+
+                    \            found = _find_record_list(value, depth + 1,
+                    max_depth)\r
+
+                    \            if found is not None:\r
+
+                    \                return found\r
+
+                    \r
+
+                    \    return None\r
+
+                    \r
+
+                    \r
+
+                    def extract_records(data):\r
+
+                    \    \"\"\"Extract a batch of records from common wrapper
+                    shapes.\"\"\"\r
+
+                    \    if data is None:\r
+
+                    \        return []\r
+
+                    \        \r
+
+                    \    data = _maybe_parse_json(data)\r
+
+                    \    \r
+
+                    \    if data is None:\r
+
+                    \        return []\r
+
+                    \r
 
                     \    if isinstance(data, list):\r
 
-                    \        return [item if isinstance(item, dict) else
-                    {\"data\": item} for item in data], True\r
+                    \        return data\r
+
+                    \r
 
                     \    if isinstance(data, dict):\r
 
-                    \        return [data], False\r
+                    \        found = _find_record_list(data)\r
 
-                    \    return [{\"data\": data}], False\r
+                    \        if found is not None:\r
+
+                    \            return found\r
+
+                    \        \r
+
+                    \        # Si c'est un dictionnaire qui pourrait être un
+                    seul enregistrement\r
+
+                    \        # mais éviter les métadonnées de table\r
+
+                    \        table_keys = [\"table_name\", \"table_schema\",
+                    \"table_catalog\", \"table_type\"]\r
+
+                    \        if any(key in data for key in table_keys):\r
+
+                    \            return []\r
+
+                    \            \r
+
+                    \        return [data]\r
+
+                    \r
+
+                    \    return [{\"value\": data}]\r
+
+                    \r
+
+                    \r
+
+                    def normalize_records(data):\r
+
+                    \    records = extract_records(data)\r
+
+                    \    if not records:\r
+
+                    \        return [], False\r
+
+                    \    return [item if isinstance(item, dict) else {\"data\":
+                    item} for item in records], isinstance(records, list)\r
 
                     \r
 
@@ -2896,7 +3211,7 @@ value:
 
                     def main(\r
 
-                    \    data: Dict[str, Any],\r
+                    \    data: Dict[str, Any] = None,\r
 
                     \    collection: Literal[\"raw_data\", \"normalized_data\",
                     \"rejected_data\"] = \"normalized_data\"\r
@@ -2925,14 +3240,115 @@ value:
 
                     \        print(f\"  - Type de data: {type(data)}\")\r
 
+                    \        \r
+
+                    \        # Vérifier si data est None\r
+
+                    \        if data is None:\r
+
+                    \            print(\"❌ ERREUR: data est None!\")\r
+
+                    \            print(\"=\" * 60)\r
+
+                    \            return {\r
+
+                    \                \"status\": \"error\",\r
+
+                    \                \"message\": \"data is None - no data
+                    received from previous step\",\r
+
+                    \                \"step\": \"mongodb_write\"\r
+
+                    \            }\r
+
+                    \            \r
+
                     \        print(f\"  - Clés de data: {list(data.keys()) if
                     isinstance(data, dict) else 'Not a dict'}\")\r
+
+                    \        \r
+
+                    \        # Afficher le contenu des clés importantes\r
+
+                    \        if isinstance(data, dict):\r
+
+                    \            for key in [\"rejected_data\",
+                    \"validated_data\", \"data\", \"records\"]:\r
+
+                    \                if key in data:\r
+
+                    \                    value = data[key]\r
+
+                    \                    print(f\"  - {key}:
+                    type={type(value)}\")\r
+
+                    \                    if isinstance(value, list):\r
+
+                    \                        print(f\"    -
+                    length={len(value)}\")\r
+
+                    \                        if len(value) > 0:\r
+
+                    \                            print(f\"    - first item
+                    type={type(value[0])}\")\r
 
                     \        print(\"=\" * 60)\r
 
                     \        \r
 
+                    \        # Extraire les records\r
+
                     \        record_list, was_list = normalize_records(data)\r
+
+                    \        \r
+
+                    \        # Si record_list est vide, essayer des approches
+                    alternatives\r
+
+                    \        if len(record_list) == 0 and isinstance(data,
+                    dict):\r
+
+                    \            # Cas spécial: les données pourraient être
+                    directement dans rejected_data\r
+
+                    \            for key in [\"rejected_data\",
+                    \"validated_data\"]:\r
+
+                    \                if key in data and isinstance(data[key],
+                    list) and data[key]:\r
+
+                    \                    record_list = data[key]\r
+
+                    \                    was_list = True\r
+
+                    \                    print(f\"✅ Utilisation directe de
+                    {key}: {len(record_list)} enregistrements\")\r
+
+                    \                    break\r
+
+                    \        \r
+
+                    \        if len(record_list) == 0:\r
+
+                    \            print(\"❌ Aucun enregistrement à écrire\")\r
+
+                    \            return {\r
+
+                    \                \"status\": \"error\",\r
+
+                    \                \"message\": \"No records to write - could
+                    not extract data from input\",\r
+
+                    \                \"step\": \"mongodb_write\"\r
+
+                    \            }\r
+
+                    \r
+
+                    \        print(f\"📊 {len(record_list)} enregistrements à
+                    écrire dans {collection}\")\r
+
+                    \        print(\"=\" * 60)\r
 
                     \r
 
@@ -2945,26 +3361,35 @@ value:
 
                     \r
 
-                    \        results = [write_document(coll, record) for record
-                    in record_list]\r
+                    \        # Écrire tous les documents\r
 
-                    \        if len(results) == 1:\r
+                    \        results = []\r
 
-                    \            print(f\"✅ Données insérées dans
-                    '{collection}'\")\r
+                    \        for i, record in enumerate(record_list):\r
 
-                    \            print(f\"  - ID:
-                    {results[0]['inserted_id']}\")\r
+                    \            try:\r
 
-                    \            print(f\"  - dedup_key:
-                    {results[0]['dedup_key']}\")\r
+                    \                result = write_document(coll, record)\r
 
-                    \        else:\r
+                    \                results.append(result)\r
 
-                    \            print(f\"✅ {len(results)} documents traités
-                    dans '{collection}'\")\r
+                    \                print(f\"  ✅ Document
+                    {i+1}/{len(record_list)} écrit - ID:
+                    {result['inserted_id']}\")\r
+
+                    \            except Exception as e:\r
+
+                    \                print(f\"  ❌ Erreur document {i+1}:
+                    {e}\")\r
+
+                    \                results.append({\"error\": str(e)})\r
+
+                    \        \r
 
                     \        print(\"=\" * 60)\r
+
+                    \        print(f\"✅ {len([r for r in results if 'error' not
+                    in r])} documents écrits avec succès\")\r
 
                     \        \r
 
@@ -2992,21 +3417,15 @@ value:
 
                     \            \"status\": \"success\",\r
 
-                    \            \"inserted_id\": results[0][\"inserted_id\"] if
-                    results else None,\r
-
-                    \            \"inserted_ids\": [result[\"inserted_id\"] for
-                    result in results],\r
+                    \            \"inserted_ids\": [r.get(\"inserted_id\") for r
+                    in results if \"error\" not in r],\r
 
                     \            \"collection\": collection,\r
 
-                    \            \"updated\": results[0][\"updated\"] if results
-                    else False,\r
-
-                    \            \"dedup_key\": results[0][\"dedup_key\"] if
-                    results else None,\r
-
                     \            \"record_count\": len(record_list),\r
+
+                    \            \"written_count\": len([r for r in results if
+                    \"error\" not in r]),\r
 
                     \            \"duration_ms\": round(duration_ms, 2),\r
 

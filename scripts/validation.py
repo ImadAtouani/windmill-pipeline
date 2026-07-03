@@ -91,16 +91,20 @@ def main(deduplicated_data: dict):
         all_errors = []
         all_warnings = []
         valid_records = []
+        rejected_records = []
 
         for record in record_list:
             record_errors, record_warnings = validate_record(record)
             if not record_errors:
                 valid_records.append(record)
+            else:
+                rejected_records.append(record)
             all_errors.extend(record_errors)
             all_warnings.extend(record_warnings)
 
         is_valid = len(all_errors) == 0
         validated_output = valid_records if was_list else (valid_records[0] if valid_records else None)
+        rejected_output = rejected_records if was_list else (rejected_records[0] if rejected_records else None)
         
         print("=" * 60)
         print(f"📊 Résultat de la validation:")
@@ -128,6 +132,7 @@ def main(deduplicated_data: dict):
         return {
             "status": "valid" if is_valid else "rejected",
             "validated_data": validated_output if is_valid else None,
+            "rejected_data": rejected_output,
             "errors": all_errors,
             "warnings": all_warnings,
             "is_valid": is_valid,
